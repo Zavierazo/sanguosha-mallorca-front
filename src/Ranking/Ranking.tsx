@@ -4,6 +4,7 @@ import Navbar from '../Navbar';
 import Select from 'react-select';
 import Modal from 'react-modal';
 import players from './players.json'
+import RankingModal from '../RankingModal';
 
 const playerOptions = players.map(player => ({ value: player.name, label: player.name }))
 const playerChoiceInit = [playerOptions[0], playerOptions[1], playerOptions[2], playerOptions[3], playerOptions[4], playerOptions[5]].map(option => option.value)
@@ -16,16 +17,20 @@ const Ranking = () => {
   }, [])
 
   const [playerChoice, setPlayerChoice] = useState<string[]>(playerChoiceInit)
+  const [currentRound, setCurrentRound] = useState<number>(0)
   const [modalIsOpen, setIsOpen] = React.useState(false);
 
-  function openModal() {
+  function openModal(round: number) {
+    setCurrentRound(round)
     setIsOpen(true);
   }
 
   function afterOpenModal() {
+    console.log('test')
   }
 
   function closeModal() {
+    setCurrentRound(0)
     setIsOpen(false);
   }
 
@@ -81,7 +86,7 @@ const Ranking = () => {
                           <button
                             type="button"
                             className="px-2 py-1 text-xs font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
-                            onClick={openModal}>
+                            onClick={() => openModal(round)}>
                             +
                           </button>
                         </div>
@@ -103,9 +108,7 @@ const Ranking = () => {
           contentLabel="Example Modal"
         >
           <button onClick={closeModal}>close</button>
-          <form>
-            <input />
-          </form>
+          <RankingModal players={playerChoice} currentRound={currentRound} />
         </Modal>
       </div>
     </div>
