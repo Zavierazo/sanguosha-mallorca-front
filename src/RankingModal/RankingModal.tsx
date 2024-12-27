@@ -98,16 +98,16 @@ const RankingModal = ({ players, currentRound }: RankingModalProps) => {
     ],
   };
 
-  const dynamicDataSchema = {
-    type: "object",
-    properties: {
-      loyalDeath: {
-        type: "integer",
-        description: "How many lions were dead when the last rebel died?",
-      },
-    },
-    required: [],
-  };
+  // const dynamicDataSchema = {
+  //   type: "object",
+  //   properties: {
+  //     loyalDeath: {
+  //       type: "integer",
+  //       description: "How many lions were dead when the last rebel died?",
+  //     },
+  //   },
+  //   required: [],
+  // };
 
   function submitModal(): void {
     console.log(playersData);
