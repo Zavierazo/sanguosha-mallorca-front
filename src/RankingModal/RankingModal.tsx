@@ -6,13 +6,29 @@ import {
 import { JsonForms } from "@jsonforms/react";
 import PropTypes from "prop-types";
 import { JsonSchema } from "@jsonforms/core";
+import { pointByNumberPlayers, PointsData, RoleConfig } from "./points";
+import { ErrorObject } from "ajv";
 
 interface RankingModalProps {
   players: string[];
   currentRound: number;
+  handleClose: () => void;
+  submitRoundData: (
+    points: {
+      role: string | null;
+      score: number;
+      alive: boolean;
+      winner: boolean;
+    }[]
+  ) => void;
 }
 
-const RankingModal = ({ players, currentRound }: RankingModalProps) => {
+const RankingModal = ({
+  players,
+  currentRound,
+  handleClose,
+  submitRoundData,
+}: RankingModalProps) => {
   const initialData = {
     ...players.reduce(
       (acc, player) => {
@@ -29,6 +45,15 @@ const RankingModal = ({ players, currentRound }: RankingModalProps) => {
     ),
   };
   const [playersData, setPlayersData] = useState(initialData);
+  const [playersDataValid, setPlayersDataValid] = useState(true);
+  const [dynamicData, setDynamicData] = useState({
+    loyalDeathOnLastRebelDeath: 0,
+    spyRebelKilled: 0,
+    spyFinalDuel: false,
+    spyFinalTrio: false,
+  });
+  const [dynamicDataValid, setDynamicDataValid] = useState(true);
+  const [additionalErrors, setAdditionalErrors] = useState<ErrorObject[]>([]);
 
   useEffect(() => {
     console.log(`RankingModal mounted`);
@@ -98,38 +123,227 @@ const RankingModal = ({ players, currentRound }: RankingModalProps) => {
     ],
   };
 
-  // const dynamicDataSchema = {
-  //   type: "object",
-  //   properties: {
-  //     loyalDeath: {
-  //       type: "integer",
-  //       description: "How many lions were dead when the last rebel died?",
-  //     },
-  //   },
-  //   required: [],
-  // };
-
-  function submitModal(): void {
-    console.log(playersData);
+  let roleConfig: RoleConfig;
+  const roleTable = pointByNumberPlayers[players.length];
+  if (playersData.winner === "King") {
+    roleConfig = roleTable.king;
+  } else if (playersData.winner === "Rebel") {
+    roleConfig = roleTable.rebel;
+  } else {
+    roleConfig = roleTable.spy;
   }
 
+  const dynamicDataSchema = {
+    type: "object",
+    properties: {
+      loyalDeathOnLastRebelDeath: {
+        type: "integer",
+        title: "How many loyalists were dead when the last rebel died?",
+      },
+      spyRebelKilled: {
+        type: "integer",
+        title: "Number of rebels killed by spy",
+      },
+      spyFinalDuel: {
+        type: "boolean",
+        title: "Spy reach the final duel?",
+      },
+      spyFinalTrio: {
+        type: "boolean",
+        title: "Spy reach the final trio (king + spy + rebel)?",
+      },
+    },
+    required: roleConfig.required,
+  };
+
+  const dynamicDataUISchema = {
+    type: "VerticalLayout",
+    elements: [
+      {
+        type: "Label",
+        text: "Additional data",
+      },
+      ...roleConfig.required.map((requiredField) => ({
+        type: "Control",
+        scope: `#/properties/${requiredField}`,
+      })),
+    ],
+  };
+
+  function submitModal(): void {
+    setAdditionalErrors([]);
+    if (!playersDataValid || !dynamicDataValid) {
+      console.log("Data is not valid");
+      return;
+    }
+
+    const pointsData: PointsData = {
+      king: countByRole(["King"]),
+      loyalist: countByRole(["King", "Loyalist"]),
+      loyalistAlive: countByRoleAlive(["King", "Loyalist"], true),
+      loyalistDeath: countByRoleAlive(["King", "Loyalist"], false),
+      rebel: countByRole(["Rebel"]),
+      rebelAlive: countByRoleAlive(["Rebel"], true),
+      rebelDeath: countByRoleAlive(["Rebel"], false),
+      spy: countByRole(["Spy"]),
+      spyAlive: countByRoleAlive(["Spy"], true),
+      spyDeath: countByRoleAlive(["Spy"], false),
+      ...dynamicData,
+    };
+
+    validate(pointsData);
+    if (additionalErrors.length > 0) {
+      console.log("Additional errors");
+      return;
+    }
+
+    submitRoundData(
+      players.map((player) => {
+        const role = playersData[`${player}_role` as keyof typeof playersData];
+        const alive = Boolean(
+          playersData[`${player}_alive` as keyof typeof playersData]
+        );
+        let score = 0;
+        if (role === "King") {
+          score = roleConfig.king.points(pointsData);
+        } else if (role === "Loyalist") {
+          score = roleConfig.king.points(pointsData);
+        } else if (role === "Rebel") {
+          score = roleConfig.rebel.points(pointsData);
+        } else if (role === "Spy") {
+          score = roleConfig.spy.points(pointsData);
+        } else {
+          console.log(`Unknown role for player ${player}:${role}`);
+        }
+        let roleAbbr;
+        if (role === "King") {
+          roleAbbr = "R";
+        } else if (role === "Loyalist") {
+          roleAbbr = "L";
+        } else if (role === "Rebel") {
+          roleAbbr = "V";
+        } else if (role === "Spy") {
+          roleAbbr = "A";
+        } else {
+          roleAbbr = "?";
+        }
+        return {
+          role: roleAbbr,
+          score,
+          alive,
+          winner:
+            playersData.winner === role ||
+            (playersData.winner === "King" && role === "Loyalist"),
+        };
+      })
+    );
+  }
+
+  function countByRole(roles: string[]) {
+    return players.filter((player) => {
+      const role = playersData[`${player}_role` as keyof typeof playersData];
+      return role && roles.includes(role);
+    }).length;
+  }
+
+  function countByRoleAlive(roles: string[], alive: boolean) {
+    return players
+      .filter((player) => {
+        const role = playersData[`${player}_role` as keyof typeof playersData];
+        return role && roles.includes(role);
+      })
+      .filter((player) =>
+        Boolean(
+          playersData[`${player}_alive` as keyof typeof playersData] === alive
+        )
+      ).length;
+  }
+
+  function validate(pointsData: PointsData): void {
+    if (pointsData.king === 0) {
+      addAdditionalError("King must be selected");
+    }
+    if (pointsData.spy === 0) {
+      addAdditionalError("Spy must be selected");
+    }
+    if (pointsData.rebel === 0) {
+      addAdditionalError("Rebel must be selected");
+    }
+    if (pointsData.loyalist === 0) {
+      addAdditionalError("Loyalist must be selected");
+    }
+    if (pointsData.king > 1) {
+      addAdditionalError("Only one king allowed");
+    }
+    if (pointsData.spyRebelKilled > pointsData.rebelDeath) {
+      addAdditionalError("Spy killed more rebel than rebel alive");
+    }
+    if (pointsData.loyalDeathOnLastRebelDeath > pointsData.loyalistDeath) {
+      addAdditionalError("Loyal dead more than loyalist alive");
+    }
+    //TODO: Validate number of Loyalist/Rebel/Spy
+  }
+
+  const addAdditionalError = (message: string) => {
+    const newError: ErrorObject = {
+      dataPath: "/winner",
+      message: message,
+      schemaPath: "",
+      keyword: "",
+      params: {},
+    };
+    setAdditionalErrors((errors) => [...errors, newError]);
+  };
+
   return (
-    <div className="RankingModal-component">
-      <JsonForms
-        schema={playerRoleSchema}
-        uischema={playerRoleUISchema}
-        data={playersData}
-        renderers={materialRenderers}
-        cells={materialCells}
-        onChange={({ data }) => setPlayersData(data)}
-      />
-      <button
-        type="button"
-        className="px-2 py-1 text-xs font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
-        onClick={() => submitModal()}
-      >
-        Submit
-      </button>
+    <div className="RankingModal-component p-2">
+      <div className="my-3">
+        <JsonForms
+          schema={playerRoleSchema}
+          uischema={playerRoleUISchema}
+          data={playersData}
+          renderers={materialRenderers}
+          cells={materialCells}
+          onChange={({ errors, data }) => {
+            setPlayersDataValid((errors?.length ?? 0) === 0);
+            setPlayersData(data);
+          }}
+        />
+        <JsonForms
+          schema={dynamicDataSchema}
+          uischema={dynamicDataUISchema}
+          data={dynamicData}
+          renderers={materialRenderers}
+          cells={materialCells}
+          onChange={({ errors, data }) => {
+            setDynamicDataValid((errors?.length ?? 0) === 0);
+            setDynamicData(data);
+          }}
+        />
+      </div>
+      <div className="flex flex-col justify-center text-cen gap-3 m-5">
+        {additionalErrors.map((error, index) => (
+          <div key={index} className="text-red-500">
+            {error.message}
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-center gap-5">
+        <button
+          type="button"
+          className="px-2 py-1 text-xl font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
+          onClick={() => submitModal()}
+        >
+          Submit
+        </button>
+        <button
+          type="button"
+          className="px-2 py-1 text-xl font-medium text-center text-white bg-red-700 rounded-lg hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300"
+          onClick={() => handleClose()}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 };
