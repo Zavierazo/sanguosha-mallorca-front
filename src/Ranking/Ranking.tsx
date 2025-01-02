@@ -5,6 +5,7 @@ import Modal from "react-modal";
 import players from "./players.json";
 import RankingModal from "../RankingModal";
 import { useLocalStorage } from "@uidotdev/usehooks";
+import { CopyBlock, dracula } from "react-code-blocks";
 
 interface PlayerScore {
   role: string | null;
@@ -30,6 +31,7 @@ const Ranking = () => {
     []
   );
   const [isOpen, setIsOpen] = React.useState(false);
+  const [rawText, setRawText] = useLocalStorage<string>("rawText-v1", "");
 
   function openModal(round: number) {
     setCurrentRound(round);
@@ -46,6 +48,21 @@ const Ranking = () => {
       playerScores.map((playerScore, index) =>
         index === currentRound - 1 ? score : playerScore
       )
+    );
+    setRawText(
+      playerScores
+        .map((playerScore, roundIndex) =>
+          playerScore
+            .filter((score) => score.role !== null)
+            .map(
+              (score, playerIndex) =>
+                `(@lastTorneoId, ${roundIndex + 1}, '${
+                  playerChoice[playerIndex]
+                }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
+            )
+        )
+        .flat()
+        .join(",\n")
     );
     closeModal();
   }
@@ -76,33 +93,39 @@ const Ranking = () => {
               })
             )
           );
+          setRawText("");
         }}
       />
       <div className="table w-full p-2">
         {playerChoice.length < 5 || playerChoice.length > 10 ? (
           <h2>Number of players must be between 5 and 10 players.</h2>
         ) : (
-          <table className="w-full border">
-            <thead>
-              <tr className="bg-gray-50 border-b">
-                <th className="p-2 border-r cursor-pointer text-sm font-thin text-gray-500">
-                  <div className="flex items-center justify-center">Round</div>
-                </th>
-                {playerChoice.map((player, index) => (
-                  <th
-                    key={index}
-                    className="p-2 border-r cursor-pointer text-sm font-thin text-gray-500"
-                  >
+          <>
+            <table className="w-full border">
+              <thead>
+                <tr className="bg-gray-50 border-b">
+                  <th className="p-2 border-r cursor-pointer text-sm font-thin text-gray-500">
                     <div className="flex items-center justify-center">
-                      {player}
+                      Round
                     </div>
                   </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: playerChoice.length }, (_, i) => i + 1).map(
-                (round, index) => (
+                  {playerChoice.map((player, index) => (
+                    <th
+                      key={index}
+                      className="p-2 border-r cursor-pointer text-sm font-thin text-gray-500"
+                    >
+                      <div className="flex items-center justify-center">
+                        {player}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(
+                  { length: playerChoice.length },
+                  (_, i) => i + 1
+                ).map((round, index) => (
                   <tr key={index} className="bg-gray-50 text-center">
                     <td className="p-2 border-r">
                       <div className="flex items-center justify-center gap-2">
@@ -136,10 +159,21 @@ const Ranking = () => {
                       </td>
                     ))}
                   </tr>
-                )
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+            <div className="mt-5">
+              <h3>Raw data</h3>
+              <div className="text-sm text-gray-500 text-start">
+                <CopyBlock
+                  text={rawText}
+                  language={"SQL"}
+                  showLineNumbers={true}
+                  theme={dracula}
+                />
+              </div>
+            </div>
+          </>
         )}
         <Modal
           isOpen={isOpen}
@@ -153,22 +187,6 @@ const Ranking = () => {
             submitRoundData={submitRoundData}
           />
         </Modal>
-        <div className="mt-5">
-          <h3>Raw data</h3>
-          <div className="text-sm text-gray-500">
-            {playerScores.map((playerScore, roundIndex) =>
-              playerScore
-                .filter((score) => score.role !== null)
-                .map((score, playerIndex) => (
-                  <div key={roundIndex * playerIndex}>
-                    (@lastTorneoId, {roundIndex + 1}, &apos;
-                    {playerChoice[playerIndex]}&apos;, &apos;{score.role}&apos;,{" "}
-                    {score.score}, {score.winner ? 1 : 0})
-                  </div>
-                ))
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
