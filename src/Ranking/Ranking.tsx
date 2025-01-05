@@ -7,12 +7,20 @@ import RankingModal from "../RankingModal";
 import { useLocalStorage } from "@uidotdev/usehooks";
 import { CopyBlock, dracula } from "react-code-blocks";
 
-interface PlayerScore {
+export interface PlayerScore {
   role: string | null;
   score: number;
   alive: boolean;
   winner: boolean;
 }
+export interface GameScore {
+  winner: string | null;
+  loyalDeathOnLastRebelDeath: number;
+  spyRebelKilled: number;
+  spyFinalDuel: boolean;
+  spyFinalTrio: boolean;
+}
+
 const playerOptions = players.map((player) => ({
   value: player.name,
   label: player.name,
@@ -25,13 +33,17 @@ const Ranking = () => {
     "playerChoice-v1",
     []
   );
-  const [currentRound, setCurrentRound] = useState<number>(0);
   const [playerScores, setPlayerScores] = useLocalStorage<PlayerScore[][]>(
     "playerScore-v1",
     []
   );
+  const [gameScores, setGameScores] = useLocalStorage<GameScore[]>(
+    "gameScore-v1",
+    []
+  );
+  const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
-  const [rawText, setRawText] = useLocalStorage<string>("rawText-v1", "");
+  const [rawText, setRawText] = useState<string>(getRawText(playerScores));
 
   function openModal(round: number) {
     setCurrentRound(round);
@@ -43,28 +55,33 @@ const Ranking = () => {
     setIsOpen(false);
   }
 
-  function submitRoundData(score: PlayerScore[]) {
-    setPlayerScores(
-      playerScores.map((playerScore, index) =>
-        index === currentRound - 1 ? score : playerScore
-      )
+  function submitRoundData(player: PlayerScore[], game: GameScore) {
+    const newPlayerScores = playerScores.map((playerScore, index) =>
+      index === currentRound - 1 ? player : playerScore
     );
-    setRawText(
-      playerScores
-        .map((playerScore, roundIndex) =>
-          playerScore
-            .filter((score) => score.role !== null)
-            .map(
-              (score, playerIndex) =>
-                `(@lastTorneoId, ${roundIndex + 1}, '${
-                  playerChoice[playerIndex]
-                }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
-            )
-        )
-        .flat()
-        .join(",\n")
+    const newGameScores = gameScores.map((gameScore, index) =>
+      index === currentRound - 1 ? game : gameScore
     );
+    setPlayerScores(newPlayerScores);
+    setGameScores(newGameScores);
+    setRawText(getRawText(newPlayerScores));
     closeModal();
+  }
+
+  function getRawText(playerScores: PlayerScore[][]) {
+    return playerScores
+      .map((playerScore, roundIndex) =>
+        playerScore
+          .filter((score) => score.role !== null)
+          .map(
+            (score, playerIndex) =>
+              `(@lastTorneoId, ${roundIndex + 1}, '${
+                playerChoice[playerIndex]
+              }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
+          )
+      )
+      .flat()
+      .join(",\n");
   }
 
   return (
@@ -92,6 +109,15 @@ const Ranking = () => {
                 winner: false,
               })
             )
+          );
+          setGameScores(
+            new Array<GameScore>(selectedValues.length).fill({
+              winner: null,
+              loyalDeathOnLastRebelDeath: 0,
+              spyRebelKilled: 0,
+              spyFinalDuel: false,
+              spyFinalTrio: false,
+            })
           );
           setRawText("");
         }}
@@ -183,6 +209,8 @@ const Ranking = () => {
           <RankingModal
             players={playerChoice}
             currentRound={currentRound}
+            previousPoints={playerScores[currentRound - 1]}
+            previousScore={gameScores[currentRound - 1]}
             handleClose={closeModal}
             submitRoundData={submitRoundData}
           />

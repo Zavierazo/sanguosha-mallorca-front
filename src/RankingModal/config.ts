@@ -1,6 +1,7 @@
 export interface PointsData {
   //Mandatory
   king: number;
+  kingAlive: number;
   loyalist: number;
   loyalistAlive: number;
   loyalistDeath: number;
@@ -22,6 +23,12 @@ export interface IPointsMap {
     king: RoleConfig;
     rebel: RoleConfig;
     spy: RoleConfig;
+    minRebel: number;
+    maxRebel: number;
+    minLoyal: number;
+    maxLoyal: number;
+    minSpy: number;
+    maxSpy: number;
   };
 }
 export interface RoleConfig {
@@ -36,6 +43,12 @@ export interface RolePoints {
 
 export const pointByNumberPlayers: IPointsMap = {
   5: {
+    minRebel: 2,
+    maxRebel: 2,
+    minLoyal: 1,
+    maxLoyal: 1,
+    minSpy: 1,
+    maxSpy: 1,
     king: {
       king: {
         points: ({ loyalistAlive }: PointsData) =>
@@ -79,6 +92,12 @@ export const pointByNumberPlayers: IPointsMap = {
     },
   },
   6: {
+    minRebel: 3,
+    maxRebel: 3,
+    minLoyal: 1,
+    maxLoyal: 1,
+    minSpy: 1,
+    maxSpy: 1,
     king: {
       king: {
         points: ({ loyalistAlive }: PointsData) =>
@@ -130,6 +149,12 @@ export const pointByNumberPlayers: IPointsMap = {
     },
   },
   7: {
+    minRebel: 3,
+    maxRebel: 3,
+    minLoyal: 2,
+    maxLoyal: 2,
+    minSpy: 1,
+    maxSpy: 1,
     king: {
       king: {
         points: ({ loyalistAlive }: PointsData) => {
@@ -188,6 +213,12 @@ export const pointByNumberPlayers: IPointsMap = {
     },
   },
   8: {
+    minRebel: 3,
+    maxRebel: 4,
+    minLoyal: 2,
+    maxLoyal: 2,
+    minSpy: 1,
+    maxSpy: 2,
     king: {
       king: {
         points: ({ loyalistAlive }: PointsData) => {
@@ -248,6 +279,12 @@ export const pointByNumberPlayers: IPointsMap = {
     },
   },
   9: {
+    minRebel: 4,
+    maxRebel: 4,
+    minLoyal: 2,
+    maxLoyal: 3,
+    minSpy: 1,
+    maxSpy: 2,
     king: {
       king: {
         points: ({ loyalistAlive }: PointsData) => {
@@ -310,6 +347,12 @@ export const pointByNumberPlayers: IPointsMap = {
     },
   },
   10: {
+    minRebel: 4,
+    maxRebel: 5,
+    minLoyal: 3,
+    maxLoyal: 3,
+    minSpy: 1,
+    maxSpy: 2,
     king: {
       king: {
         points: ({ loyalistAlive }: PointsData) => {

@@ -6,51 +6,62 @@ import {
 import { JsonForms } from "@jsonforms/react";
 import PropTypes from "prop-types";
 import { JsonSchema } from "@jsonforms/core";
-import { pointByNumberPlayers, PointsData, RoleConfig } from "./points";
+import { pointByNumberPlayers, PointsData, RoleConfig } from "./config";
 import { ErrorObject } from "ajv";
-
+import { GameScore, PlayerScore } from "../Ranking//Ranking";
 interface RankingModalProps {
   players: string[];
   currentRound: number;
+  previousPoints?: PlayerScore[];
+  previousScore?: GameScore;
   handleClose: () => void;
-  submitRoundData: (
-    points: {
-      role: string | null;
-      score: number;
-      alive: boolean;
-      winner: boolean;
-    }[]
-  ) => void;
+  submitRoundData: (points: PlayerScore[], score: GameScore) => void;
 }
 
 const RankingModal = ({
   players,
   currentRound,
+  previousPoints,
+  previousScore,
   handleClose,
   submitRoundData,
 }: RankingModalProps) => {
   const initialData = {
     ...players.reduce(
       (acc, player) => {
+        const playerIndex = players.indexOf(player);
+        const playerScoreRole = previousPoints?.[playerIndex]?.role;
+        let playerRole;
+        if (playerScoreRole === "R") {
+          playerRole = "King";
+        } else if (playerScoreRole === "L") {
+          playerRole = "Loyalist";
+        } else if (playerScoreRole === "V") {
+          playerRole = "Rebel";
+        } else if (playerScoreRole === "A") {
+          playerRole = "Spy";
+        } else {
+          playerRole = playerIndex + 1 === currentRound ? "King" : null;
+        }
+        const playerAlive = previousPoints?.[playerIndex]?.alive;
         return {
           ...acc,
-          [`${player}_role`]:
-            players.indexOf(player) + 1 === currentRound ? "King" : null,
-          [`${player}_alive`]: true,
+          [`${player}_role`]: playerRole,
+          [`${player}_alive`]: playerAlive ?? false,
         };
       },
       {
-        winner: null,
+        winner: previousScore?.winner ?? null,
       }
     ),
   };
   const [playersData, setPlayersData] = useState(initialData);
   const [playersDataValid, setPlayersDataValid] = useState(true);
   const [dynamicData, setDynamicData] = useState({
-    loyalDeathOnLastRebelDeath: 0,
-    spyRebelKilled: 0,
-    spyFinalDuel: false,
-    spyFinalTrio: false,
+    loyalDeathOnLastRebelDeath: previousScore?.loyalDeathOnLastRebelDeath ?? 0,
+    spyRebelKilled: previousScore?.spyRebelKilled ?? 0,
+    spyFinalDuel: previousScore?.spyFinalDuel ?? false,
+    spyFinalTrio: previousScore?.spyFinalTrio ?? false,
   });
   const [dynamicDataValid, setDynamicDataValid] = useState(true);
   const [additionalErrors, setAdditionalErrors] = useState<ErrorObject[]>([]);
@@ -173,27 +184,14 @@ const RankingModal = ({
   function submitModal(): void {
     setAdditionalErrors([]);
     if (!playersDataValid || !dynamicDataValid) {
-      console.log("Data is not valid");
       return;
     }
 
-    const pointsData: PointsData = {
-      king: countByRole(["King"]),
-      loyalist: countByRole(["King", "Loyalist"]),
-      loyalistAlive: countByRoleAlive(["King", "Loyalist"], true),
-      loyalistDeath: countByRoleAlive(["King", "Loyalist"], false),
-      rebel: countByRole(["Rebel"]),
-      rebelAlive: countByRoleAlive(["Rebel"], true),
-      rebelDeath: countByRoleAlive(["Rebel"], false),
-      spy: countByRole(["Spy"]),
-      spyAlive: countByRoleAlive(["Spy"], true),
-      spyDeath: countByRoleAlive(["Spy"], false),
-      ...dynamicData,
-    };
+    const pointsData: PointsData = getPointsData();
 
-    validate(pointsData);
-    if (additionalErrors.length > 0) {
-      console.log("Additional errors");
+    const errors = validate(pointsData);
+    if (errors.length > 0) {
+      fillAdditionalError(errors);
       return;
     }
 
@@ -235,8 +233,29 @@ const RankingModal = ({
             playersData.winner === role ||
             (playersData.winner === "King" && role === "Loyalist"),
         };
-      })
+      }),
+      {
+        winner: playersData.winner,
+        ...dynamicData,
+      }
     );
+  }
+
+  function getPointsData(): PointsData {
+    return {
+      king: countByRole(["King"]),
+      kingAlive: countByRoleAlive(["King"], true),
+      loyalist: countByRole(["King", "Loyalist"]),
+      loyalistAlive: countByRoleAlive(["King", "Loyalist"], true),
+      loyalistDeath: countByRoleAlive(["King", "Loyalist"], false),
+      rebel: countByRole(["Rebel"]),
+      rebelAlive: countByRoleAlive(["Rebel"], true),
+      rebelDeath: countByRoleAlive(["Rebel"], false),
+      spy: countByRole(["Spy"]),
+      spyAlive: countByRoleAlive(["Spy"], true),
+      spyDeath: countByRoleAlive(["Spy"], false),
+      ...dynamicData,
+    };
   }
 
   function countByRole(roles: string[]) {
@@ -252,47 +271,115 @@ const RankingModal = ({
         const role = playersData[`${player}_role` as keyof typeof playersData];
         return role && roles.includes(role);
       })
-      .filter((player) =>
-        Boolean(
-          playersData[`${player}_alive` as keyof typeof playersData] === alive
-        )
+      .filter(
+        (player) =>
+          Boolean(
+            playersData[`${player}_alive` as keyof typeof playersData]
+          ) === alive
       ).length;
   }
 
-  function validate(pointsData: PointsData): void {
+  function validate(pointsData: PointsData): string[] {
+    if (!roleTable) {
+      return [];
+    }
+    const errors: string[] = [];
     if (pointsData.king === 0) {
-      addAdditionalError("King must be selected");
+      errors.push("King must be selected");
     }
     if (pointsData.spy === 0) {
-      addAdditionalError("Spy must be selected");
+      errors.push("Spy must be selected");
     }
     if (pointsData.rebel === 0) {
-      addAdditionalError("Rebel must be selected");
+      errors.push("Rebel must be selected");
     }
     if (pointsData.loyalist === 0) {
-      addAdditionalError("Loyalist must be selected");
+      errors.push("Loyalist must be selected");
     }
     if (pointsData.king > 1) {
-      addAdditionalError("Only one king allowed");
+      errors.push("Only one king allowed");
     }
     if (pointsData.spyRebelKilled > pointsData.rebelDeath) {
-      addAdditionalError("Spy killed more rebel than rebel alive");
+      errors.push("Spy killed more rebel than rebel alive");
     }
     if (pointsData.loyalDeathOnLastRebelDeath > pointsData.loyalistDeath) {
-      addAdditionalError("Loyal dead more than loyalist alive");
+      errors.push("Loyal dead more than loyalist alive");
     }
-    //TODO: Validate number of Loyalist/Rebel/Spy
+    if (
+      pointsData.rebel < roleTable.minRebel ||
+      pointsData.rebel > roleTable.maxRebel
+    ) {
+      errors.push(
+        `Rebel must be between ${roleTable.minRebel} and ${roleTable.maxRebel}`
+      );
+    }
+    if (
+      pointsData.loyalist < roleTable.minLoyal + 1 ||
+      pointsData.loyalist > roleTable.maxLoyal + 1
+    ) {
+      errors.push(
+        `Loyalist must be between ${roleTable.minLoyal} and ${roleTable.maxLoyal}`
+      );
+    }
+    if (
+      pointsData.spy < roleTable.minSpy ||
+      pointsData.spy > roleTable.maxSpy
+    ) {
+      errors.push(
+        `Spy must be between ${roleTable.minSpy} and ${roleTable.maxSpy}`
+      );
+    }
+    if (
+      pointsData.loyalistAlive === 0 &&
+      pointsData.rebelAlive === 0 &&
+      pointsData.spyAlive === 0
+    ) {
+      errors.push("Atleast one player must be alive");
+    }
+    if (playersData.winner === "King") {
+      if (pointsData.kingAlive === 0) {
+        errors.push("If King is the winner, he must be alive");
+      }
+      if (pointsData.rebelAlive > 0 || pointsData.spyAlive > 0) {
+        errors.push("If King is the winner, no rebel or spy must be alive");
+      }
+    }
+    if (playersData.winner === "Rebel") {
+      if (pointsData.rebelAlive === 0) {
+        errors.push("If Rebel is the winner, at least one rebel must be alive");
+      }
+      if (pointsData.kingAlive > 0) {
+        errors.push("If Rebel is the winner, no king must be alive");
+      }
+    }
+    if (playersData.winner === "Spy") {
+      if (pointsData.spyAlive === 0) {
+        errors.push("If Spy is the winner, at least one spy must be alive");
+      }
+      if (
+        pointsData.kingAlive > 0 ||
+        pointsData.rebelAlive > 0 ||
+        pointsData.loyalistAlive > 0
+      ) {
+        errors.push(
+          "If Spy is the winner, no king, rebel or loyalist must be alive"
+        );
+      }
+    }
+    return errors;
   }
 
-  const addAdditionalError = (message: string) => {
-    const newError: ErrorObject = {
-      dataPath: "/winner",
-      message: message,
-      schemaPath: "",
-      keyword: "",
-      params: {},
-    };
-    setAdditionalErrors((errors) => [...errors, newError]);
+  const fillAdditionalError = (message: string[]) => {
+    message.forEach((message) => {
+      const newError: ErrorObject = {
+        dataPath: "/winner",
+        message: message,
+        schemaPath: "",
+        keyword: "",
+        params: {},
+      };
+      setAdditionalErrors((errors) => [...errors, newError]);
+    });
   };
 
   return (
