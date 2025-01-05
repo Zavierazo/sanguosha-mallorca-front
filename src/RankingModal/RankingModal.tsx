@@ -66,10 +66,6 @@ const RankingModal = ({
   const [dynamicDataValid, setDynamicDataValid] = useState(true);
   const [additionalErrors, setAdditionalErrors] = useState<ErrorObject[]>([]);
 
-  useEffect(() => {
-    console.log(`RankingModal mounted`);
-  }, []);
-
   const playerRoleSchema = {
     type: "object",
     properties: players.reduce(
