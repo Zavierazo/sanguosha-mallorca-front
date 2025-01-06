@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import Navbar from "../Navbar";
-import Select from "react-select";
+import CreatableSelect from "react-select/creatable";
 import Modal from "react-modal";
 import players from "./players.json";
 import RankingModal from "../RankingModal";
@@ -88,7 +88,7 @@ const Ranking = () => {
     <div className="Ranking-component">
       <Navbar />
       <h1 className="text-3xl font-bold underline m-6">Ranking Tool</h1>
-      <Select
+      <CreatableSelect
         isMulti
         isSearchable={true}
         isOptionDisabled={() => playerChoice.length >= 10}
