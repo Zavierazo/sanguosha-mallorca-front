@@ -153,11 +153,11 @@ const RankingModal = ({
       },
       spyFinalDuel: {
         type: "boolean",
-        title: "Spy reach the final duel?",
+        title: "Spy reached the final duel?",
       },
       spyFinalTrio: {
         type: "boolean",
-        title: "Spy reach the final trio (king + spy + rebel)?",
+        title: "Spy reached the final trio (king + spy + rebel)?",
       },
     },
     required: roleConfig.required,
