@@ -3,6 +3,9 @@
         "name": "Abigail"
     },
     {
+        "name": "Alektusv7"
+    },
+    {
         "name": "Ander"
     },
     {
@@ -12,6 +15,15 @@
         "name": "Axel"
     },
     {
+        "name": "Che"
+    },
+    {
+        "name": "Clara"
+    },
+    {
+        "name": "Denchor"
+    },
+    {
         "name": "Elías"
     },
     {
@@ -19,9 +31,18 @@
     },
     {
         "name": "Hache"
+    },   
+    {
+        "name": "Ignasi"
     },
     {
         "name": "Itachi"
+    },
+    {
+        "name": "Qtus"
+    },
+    {
+        "name": "Matías"
     },
     {
         "name": "Miguel"
@@ -31,6 +52,9 @@
     },
     {
         "name": "Ninshello"
+    },
+    {
+        "name": "Rubén"
     },
     {
         "name": "Sarki"
@@ -46,23 +70,6 @@
     },
     {
         "name": "Zavierazo"
-    },
-    {
-        "name": "Che"
-    },
-    {
-        "name": "Matías"
-    },
-    {
-        "name": "Clara"
-    },
-    {
-        "name": "Rubén"
-    },
-    {
-        "name": "Denchor"
-    },
-    {
-        "name": "Qtus"
     }
+
 ]
