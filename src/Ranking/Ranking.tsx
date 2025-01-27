@@ -88,6 +88,7 @@ const Ranking = () => {
     <div className="Ranking-component">
       <Navbar />
       <h1 className="text-3xl font-bold underline m-6">Ranking Tool</h1>
+      <h2>Input the names in the order the players are sitting, starting with the ruler.</h2>
       <CreatableSelect
         isMulti
         isSearchable={true}
