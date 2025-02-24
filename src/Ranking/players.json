@@ -21,6 +21,9 @@
         "name": "Clara"
     },
     {
+        "name": "Danu"
+    },
+    {
         "name": "Denchor"
     },
     {
@@ -39,19 +42,22 @@
         "name": "Itachi"
     },
     {
-        "name": "Qtus"
-    },
-    {
         "name": "Matías"
-    },
-    {
-        "name": "Miguel"
     },
     {
         "name": "Miquel"
     },
     {
         "name": "Ninshello"
+    },
+    {
+        "name": "Qtus"
+    },
+    {
+        "name": "Royward"
+    },
+    {
+        "name": "Ruby"
     },
     {
         "name": "Rubén"
@@ -63,13 +69,15 @@
         "name": "Simonet"
     },
     {
+        "name": "Tarma"
+    },
+    {
         "name": "Toxà"
     },
     {
-        "name": "Zatara"
+        "name": "World"
     },
     {
-        "name": "Zavierazo"
+        "name": "Zatara"
     }
-
 ]
