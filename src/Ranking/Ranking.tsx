@@ -127,7 +127,7 @@ const Ranking = () => {
           setPlayerScores(
             new Array<PlayerScore[]>(selectedValues.length).fill(
               new Array<PlayerScore>(selectedValues.length).fill({
-                role: null,
+                role: "Rebel",
                 score: 0,
                 alive: true,
                 winner: false,
