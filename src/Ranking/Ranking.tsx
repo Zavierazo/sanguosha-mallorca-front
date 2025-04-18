@@ -127,7 +127,7 @@ const Ranking = () => {
               new Array<PlayerScore>(selectedValues.length).fill({
                 role: null,
                 score: 0,
-                alive: false,
+                alive: true,
                 winner: false,
               })
             )
