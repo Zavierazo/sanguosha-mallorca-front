@@ -43,8 +43,8 @@ const Ranking = () => {
   );
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
-  const [rawText, setRawText] = useState<string>(getRawText(playerScores));
   const [gameLevel, setGameLevel] = useState<number>(0);
+  const [rawText, setRawText] = useState<string>(getRawText(playerScores));
 
   function openModal(round: number) {
     setCurrentRound(round);
@@ -70,13 +70,13 @@ const Ranking = () => {
   }
 
   function getRawText(playerScores: PlayerScore[][]) {
-    //const today = new Date();
-    //const formattedDate = today.toISOString().split("T")[0]; 
-    //const dateLine = `gameDate = '${formattedDate}'`;
+    const today = new Date();
+    const formattedDate = today.toISOString().split("T")[0]; 
+    const dateLine = `gameDate = '${formattedDate}'`;
 
-    //const countLine = `gameLevel = ${gameLevel};`;
-    
-    return playerScores
+    const levelLine = `gameLevel = ${gameLevel};`;
+     
+    const roundRows = playerScores
       .map((playerScore, roundIndex) =>
         playerScore
           .filter((score) => score.role !== null)
@@ -87,10 +87,8 @@ const Ranking = () => {
               }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
           )
       )
-      .flat()
-      .join(",\n");
-   //   return [dateLine, countLine, ...roundRows].join("\n");
-  
+      .flat();
+      return [dateLine, levelLine,...roundRows].join("\n");  
   }
 
   return (
@@ -127,9 +125,9 @@ const Ranking = () => {
           setPlayerScores(
             new Array<PlayerScore[]>(selectedValues.length).fill(
               new Array<PlayerScore>(selectedValues.length).fill({
-                role: "Rebel",
+                role: null,
                 score: 0,
-                alive: true,
+                alive: false,
                 winner: false,
               })
             )
