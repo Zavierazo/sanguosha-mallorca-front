@@ -44,6 +44,7 @@ const Ranking = () => {
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
+  const [gameLevel, setGameLevel] = useState<number>(0);
 
   function openModal(round: number) {
     setCurrentRound(round);
@@ -88,6 +89,20 @@ const Ranking = () => {
     <div className="Ranking-component">
       <Navbar />
       <h1 className="text-3xl font-bold underline m-6">Ranking Tool</h1>
+      <div className="mb-4">
+      <label htmlFor="gameLevel" className="block text-lg font-medium">
+        Game level:
+      </label>
+      <input
+        id="gameLevel"
+        type="number"
+        min="0"
+        max="13"
+        value={gameLevel}
+        onChange={(e) => setGameLevel(Number(e.target.value))}
+        className="mt-1 border border-gray-300 rounded px-2 py-1"
+      />
+    </div>      
       <h2>Input the names in the order the players are sitting, starting with the ruler.</h2>
       <CreatableSelect
         isMulti
