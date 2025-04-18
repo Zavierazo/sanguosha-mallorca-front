@@ -71,10 +71,10 @@ const Ranking = () => {
 
   function getRawText(playerScores: PlayerScore[][]) {
     const today = new Date();
-    const formattedDate = today.toISOString().split("T")[0]; 
-    const dateLine = `gameDate = '${formattedDate}'`;
+    //const formattedDate = today.toISOString().split("T")[0]; 
+    //const dateLine = `gameDate = '${formattedDate}'`;
 
-    const countLine = `gameLevel = ${gameLevel};`;
+    //const countLine = `gameLevel = ${gameLevel};`;
 
     const roundRows = playerScores
       .map((playerScore, roundIndex) =>
@@ -88,7 +88,9 @@ const Ranking = () => {
           )
       )
       .flat();
-      return [dateLine, countLine, ...roundRows].join("\n");
+   //   return [dateLine, countLine, ...roundRows].join("\n");
+    return [roundRows].join("\n");
+  
   }
 
   return (
