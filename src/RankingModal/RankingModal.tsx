@@ -78,6 +78,7 @@ const RankingModal = ({
           },
           [`${player}_alive`]: {
             type: "boolean",
+            default: true,
           },
         };
       },
