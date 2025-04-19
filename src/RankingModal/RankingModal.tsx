@@ -41,7 +41,7 @@ const RankingModal = ({
         } else if (playerScoreRole === "A") {
           playerRole = "Spy";
         } else {
-          playerRole = playerIndex + 1 === currentRound ? "King" : null;
+          playerRole = playerIndex + 1 === currentRound ? "King" : "Rebel";
         }
         const playerAlive = previousPoints?.[playerIndex]?.alive;
         return {
