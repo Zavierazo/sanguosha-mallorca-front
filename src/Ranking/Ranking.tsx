@@ -88,7 +88,7 @@ const Ranking = () => {
           )
       )
       .flat();
-      return [dateLine, levelLine,...roundRows].join("\n");  
+      return [dateLine, levelLine,...roundRows].join(",\n");  
   }
 
   return (
