@@ -14,18 +14,6 @@ const Navbar = () => {
         <li>
           <Link to="/">Home</Link>
         </li>
-        <li>
-        <a
-          href="https://sanguosha.es/alvaro/ranking"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Generador de puntuaciones 2021
-        </a>
-      </li>
-        <li>
-          <Link to="/ranking">Generador de puntuaciones 2024</Link>
-        </li>
       </ul>
     </nav>
   )
