@@ -72,10 +72,10 @@ export const pointByNumberPlayers: IPointsMap = {
         points: ({ rebelAlive }: PointsData) => (rebelAlive === 2 ? 49 : 45),
       },
       spy: {
-        points: ({ spyRebelKilled, spyFinalTrio }: PointsData) =>
-          6 + 5 * spyRebelKilled + (spyFinalTrio ? 10 : 0),
+        points: ({ rebelDeath, spyFinalTrio }: PointsData) =>
+          6 + 5 * rebelDeath + (spyFinalTrio ? 10 : 0),
       },
-      required: ["spyFinalTrio", "spyRebelKilled"],
+      required: ["spyFinalTrio"],
     },
     spy: {
       king: {
@@ -193,10 +193,10 @@ export const pointByNumberPlayers: IPointsMap = {
         },
       },
       spy: {
-        points: ({ spyRebelKilled, spyFinalTrio }: PointsData) =>
-          8 + 5 * spyRebelKilled + (spyFinalTrio ? 15 : 0),
+        points: ({ rebelDeath, spyFinalTrio }: PointsData) =>
+          8 + 4 * rebelDeath + (spyFinalTrio ? 15 : 0),
       },
-      required: ["spyFinalTrio", "spyRebelKilled"],
+      required: ["spyFinalTrio"],
     },
     spy: {
       king: {
@@ -327,10 +327,10 @@ export const pointByNumberPlayers: IPointsMap = {
         },
       },
       spy: {
-        points: ({ spyRebelKilled, spyFinalTrio }: PointsData) =>
-          9 + 5 * spyRebelKilled + (spyFinalTrio ? 15 : 0),
+        points: ({ rebelDeath, spyFinalTrio }: PointsData) =>
+          9 + 4 * rebelDeath + (spyFinalTrio ? 15 : 0),
       },
-      required: ["spyFinalTrio", "spyRebelKilled"],
+      required: ["spyFinalTrio"],
     },
     spy: {
       king: {
@@ -395,10 +395,10 @@ export const pointByNumberPlayers: IPointsMap = {
         },
       },
       spy: {
-        points: ({ spyRebelKilled, spyFinalTrio }: PointsData) =>
-          10 + 6 * spyRebelKilled + (spyFinalTrio ? 16 : 0),
+        points: ({ rebelDeath, spyFinalTrio }: PointsData) =>
+          10 + 5 * rebelDeath + (spyFinalTrio ? 16 : 0),
       },
-      required: ["spyFinalTrio", "spyRebelKilled"],
+      required: ["spyFinalTrio"],
     },
     spy: {
       king: {

@@ -94,8 +94,16 @@ const Ranking = () => {
   return (
     <div className="Ranking-component">
       <Navbar />
-      <h1 className="text-3xl font-bold underline m-6">Ranking Tool</h1>
+      <h1 className="text-3xl font-bold underline m-6">Generador de puntuaciones 2024</h1>
       <div className="mb-4">
+      <a
+        href="/Puntuaciones_2024_v2.pdf"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 underline"
+      >
+      Puntuaciones 2024 en PDF
+  </a>
       <label htmlFor="gameLevel" className="block text-lg font-medium">
         Game level:
       </label>

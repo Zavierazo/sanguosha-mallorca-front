@@ -369,7 +369,7 @@ const RankingModal = ({
   const fillAdditionalError = (message: string[]) => {
     message.forEach((message) => {
       const newError: ErrorObject = {
-        dataPath: "/winner",
+        instancePath: "/winner",
         message: message,
         schemaPath: "",
         keyword: "",
