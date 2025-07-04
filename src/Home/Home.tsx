@@ -67,20 +67,20 @@ const Home = () => {
           <ul className="ml-6 list-disc list-inside space-y-1">
             <li>
               <a
-                href="/explicación_juego_y_escalado_de_complejidad_v11.5.pdf"
+                href="/explicación_juego_y_escalado_de_complejidad_v12.2"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Explicación del juego y escalado de complejidad (v. 11.5)
+                Explicación del juego y escalado de complejidad (v. 12.2)
               </a>
             </li>
             <li>
               <a
-                href="/faq_v109.3.pdf"
+                href="/faq_v110.6"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Reglas (v. 109.3)
+                Reglas (v. 110.6)
               </a>
             </li>
           </ul>

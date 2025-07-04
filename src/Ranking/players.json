@@ -9,18 +9,6 @@
         "name": "Arcan"
     },
     {
-        "name": "Arrax"
-    },
-    {
-        "name": "Axel"
-    },
-    {
-        "name": "Che"
-    },
-    {
-        "name": "Clara"
-    },
-    {
         "name": "Danu"
     },
     {
@@ -42,19 +30,10 @@
         "name": "Itachi"
     },
     {
-        "name": "Matías"
-    },
-    {
         "name": "Miquel"
     },
     {
-        "name": "Ninshello"
-    },
-    {
         "name": "Qtus"
-    },
-    {
-        "name": "Royward"
     },
     {
         "name": "Ruby"
@@ -69,9 +48,6 @@
         "name": "Simonet"
     },
     {
-        "name": "Tarma"
-    },
-    {
         "name": "Toxà"
     },
     {
@@ -79,5 +55,16 @@
     },
     {
         "name": "Zatara"
-    }
+    },
+    { "name": "Adri" },
+    { "name": "Cris" },
+    { "name": "Guillem" },
+    { "name": "Heom" },
+    { "name": "Hugo" },
+    { "name": "Joan" },
+    { "name": "Jota R" },
+    { "name": "Mass" },
+    { "name": "Nikua" },
+    { "name": "Toni" },
+    { "name": "Van Falen" }
 ]
