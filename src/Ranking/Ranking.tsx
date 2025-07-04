@@ -216,6 +216,22 @@ const Ranking = () => {
                     ))}
                   </tr>
                 ))}
+                  {/* Fila de sumatorio */}
+                <tr className="bg-gray-200 font-bold">
+                  <td className="p-2 border-r text-right">Total</td>
+                  {playerChoice.map((player, playerIndex) => {
+                    // Suma los puntos de este jugador en todas las rondas no vacías
+                    const total = playerScores.reduce((sum, round) => {
+                      const score = round?.[playerIndex]?.score;
+                      return typeof score === "number" ? sum + score : sum;
+                    }, 0);
+                    return (
+                      <td key={playerIndex} className="p-2 border-r">
+                        {total}
+                      </td>
+                    );
+                  })}
+                </tr>
               </tbody>
             </table>
             <div className="mt-5">
