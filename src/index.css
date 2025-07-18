@@ -15,3 +15,8 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
     monospace;
 }
+
+/* Oculta solo la opción vacía ("None") en los dropdowns de Material UI */
+.MuiMenuItem-root[data-value=""] {
+  display: none !important;
+}

@@ -102,6 +102,9 @@ const RankingModal = ({
             type: "Control",
             scope: `#/properties/winner`,
             label: "Winner?",
+            options: {
+             autocomplete: false, // <-- fuerza select simple
+            },
           },
         ],
       },
@@ -118,6 +121,9 @@ const RankingModal = ({
                 type: "Control",
                 scope: `#/properties/${player}_role`,
                 label: "Role",
+                options: {
+                 autocomplete: false, // <-- fuerza select simple
+                },
               },
               {
                 type: "Control",
