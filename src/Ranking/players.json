@@ -1,70 +1,23 @@
 [
-    {
-        "name": "Abigail"
-    },
-    {
-        "name": "Alektusv7"
-    },
-    {
-        "name": "Arcan"
-    },
-    {
-        "name": "Danu"
-    },
-    {
-        "name": "Denchor"
-    },
-    {
-        "name": "Elías"
-    },
-    {
-        "name": "Gabri"
-    },
-    {
-        "name": "Hache"
-    },   
-    {
-        "name": "Ignasi"
-    },
-    {
-        "name": "Itachi"
-    },
-    {
-        "name": "Miquel"
-    },
-    {
-        "name": "Qtus"
-    },
-    {
-        "name": "Ruby"
-    },
-    {
-        "name": "Rubén"
-    },
-    {
-        "name": "Sarki"
-    },
-    {
-        "name": "Simonet"
-    },
-    {
-        "name": "Toxà"
-    },
-    {
-        "name": "World"
-    },
-    {
-        "name": "Zatara"
-    },
-    { "name": "Adri" },
-    { "name": "Cris" },
-    { "name": "Guillem" },
-    { "name": "Heom" },
-    { "name": "Hugo" },
+    { "name": "Abigail" },
+    { "name": "Alektusv7" },
+    { "name": "Arcan" },
+    { "name": "Axel" },
+    { "name": "Danu" },
+    { "name": "Dukosu" },
+    { "name": "Elías" },
+    { "name": "Gabri" },
+    { "name": "Hache" },
+    { "name": "Itachi" },
     { "name": "Joan" },
     { "name": "Jota R" },
-    { "name": "Mass" },
-    { "name": "Nikua" },
-    { "name": "Toni" },
-    { "name": "Van Falen" }
+    { "name": "Miquel" },
+    { "name": "Qtus" },
+    { "name": "Rikion" },
+    { "name": "Ruby" },
+    { "name": "Sarki" },
+    { "name": "Shoring" },
+    { "name": "Simonet" },
+    { "name": "Toxà" },
+    { "name": "World" }
 ]
