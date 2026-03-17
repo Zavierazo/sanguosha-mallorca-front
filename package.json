@@ -50,7 +50,7 @@
     }
   },
   "overrides": {
-    "glob": "^10.0.0",
+    "glob": "^13.0.0",
     "whatwg-encoding": "npm:@exodus/bytes",
     "inflight": "npm:lru-cache"
   },
@@ -67,7 +67,7 @@
     ]
   },
   "devDependencies": {
-    "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "@babel/plugin-transform-private-property-in-object": "^7.28.6",
     "@types/react-modal": "^3.16.3",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.4",
