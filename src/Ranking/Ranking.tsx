@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Navbar from "../Navbar";
 import CreatableSelect from "react-select/creatable";
 import Modal from "react-modal";
@@ -44,13 +44,19 @@ const Ranking = () => {
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
   const [gameLevel, setGameLevel] = useState<number>(0);
+  const [gameDescription, setGameDescription] = useState<string>('');
+
+  useEffect(() => {
+    setRawText(getRawText(playerScores));
+  }, [gameLevel, gameDescription]);
 
   function getRawText(playerScores: PlayerScore[][], players: string[] = playerChoice) {
     const today = new Date();
     const formattedDate = today.toISOString().split("T")[0];
-    const dateLine = `gameDate = '${formattedDate}'`;
+    const dateLine = `gameDate = '${formattedDate}';`;
 
     const levelLine = `gameLevel = ${gameLevel};`;
+    const descriptionLine = `gameDescription = '${gameDescription}';`;
 
     const roundRows = playerScores
       .map((playerScore, roundIndex) =>
@@ -64,7 +70,9 @@ const Ranking = () => {
           )
       )
       .flat();
-    return [dateLine, levelLine, ...roundRows].join(",\n");
+    const header = [dateLine, levelLine, descriptionLine].join("\n") + "\n";
+    const body = roundRows.join(",\n");
+    return header + body;
   }
 
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
@@ -134,6 +142,16 @@ const Ranking = () => {
         max="13"
         value={gameLevel}
         onChange={(e) => setGameLevel(Number(e.target.value))}
+        className="mt-1 border border-gray-300 rounded px-2 py-1"
+      />
+      <label htmlFor="gameDescription" className="block text-lg font-medium mt-4">
+        Descripción:
+      </label>
+      <input
+        id="gameDescription"
+        type="text"
+        value={gameDescription}
+        onChange={(e) => setGameDescription(e.target.value)}
         className="mt-1 border border-gray-300 rounded px-2 py-1"
       />
     </div>      
