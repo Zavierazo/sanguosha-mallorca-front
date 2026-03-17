@@ -45,18 +45,22 @@ const Ranking = () => {
   const [isOpen, setIsOpen] = React.useState(false);
   const [gameLevel, setGameLevel] = useState<number>(0);
   const [gameDescription, setGameDescription] = useState<string>('');
+  const [lastTorneoId, setLastTorneoId] = useState<string>('');
+  const [isRanked, setIsRanked] = useState<boolean>(true);
 
   useEffect(() => {
     setRawText(getRawText(playerScores));
-  }, [gameLevel, gameDescription]);
+  }, [gameLevel, gameDescription, lastTorneoId, isRanked]);
 
   function getRawText(playerScores: PlayerScore[][], players: string[] = playerChoice) {
     const today = new Date();
     const formattedDate = today.toISOString().split("T")[0];
-    const dateLine = `gameDate = '${formattedDate}';`;
+    const dateLine = `SET @gameDate = '${formattedDate}'`;
 
-    const levelLine = `gameLevel = ${gameLevel};`;
-    const descriptionLine = `gameDescription = '${gameDescription}';`;
+    const levelLine = `SET @nivel = ${gameLevel}`;
+    const descriptionLine = `SET @descripcion = '${gameDescription}'`;
+    const lastTorneoIdLine = `SET @lastTorneoId = ${lastTorneoId ? lastTorneoId : 'NULL'}`;
+    const isRankedLine = `SET @isRanked = ${isRanked ? 1 : 0}`;
 
     const roundRows = playerScores
       .map((playerScore, roundIndex) =>
@@ -70,7 +74,7 @@ const Ranking = () => {
           )
       )
       .flat();
-    const header = [dateLine, levelLine, descriptionLine].join("\n") + "\n";
+    const header = [dateLine, levelLine, descriptionLine, lastTorneoIdLine, isRankedLine].join("\n") + "\n";
     const body = roundRows.join(",\n");
     return header + body;
   }
@@ -154,6 +158,30 @@ const Ranking = () => {
         onChange={(e) => setGameDescription(e.target.value)}
         className="mt-1 border border-gray-300 rounded px-2 py-1"
       />
+      <label htmlFor="lastTorneoId" className="block text-lg font-medium mt-4">
+        Continuación de torneo:
+      </label>
+      <input
+        id="lastTorneoId"
+        type="number"
+        min="0"
+        max="999"
+        value={lastTorneoId}
+        onChange={(e) => setLastTorneoId(e.target.value)}
+        className="mt-1 border border-gray-300 rounded px-2 py-1"
+      />
+      <label htmlFor="isRanked" className="block text-lg font-medium mt-4">
+        Ranked:
+      </label>
+      <div className="mt-1">
+        <input
+          id="isRanked"
+          type="checkbox"
+          checked={isRanked}
+          onChange={(e) => setIsRanked(e.target.checked)}
+          className="w-4 h-4"
+        />
+      </div>
     </div>      
       <h2>Input the names in the order the players are sitting, starting with the ruler.</h2>
       <CreatableSelect
