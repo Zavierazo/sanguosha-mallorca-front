@@ -49,6 +49,11 @@
       "\\.(css|less|scss|sass)$": "identity-obj-proxy"
     }
   },
+  "overrides": {
+    "glob": "^10.0.0",
+    "whatwg-encoding": "npm:@exodus/bytes",
+    "inflight": "npm:lru-cache"
+  },
   "browserslist": {
     "production": [
       ">0.2%",
