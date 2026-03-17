@@ -104,6 +104,7 @@ const Home = () => {
               <div className="p-8">
                 <iframe 
                   src="https://app.ludoya.com/embed/groups/sanguosha/events?view=LIST&tab=future" 
+                  title="Eventos futuros de Sanguosha Mallorca"
                   style={{width: '100%', minHeight: '600px', border: 'none'}}
                   loading="lazy" 
                   referrerPolicy="no-referrer"
