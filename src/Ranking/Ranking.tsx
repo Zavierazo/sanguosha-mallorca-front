@@ -44,6 +44,29 @@ const Ranking = () => {
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
   const [gameLevel, setGameLevel] = useState<number>(0);
+
+  function getRawText(playerScores: PlayerScore[][], players: string[] = playerChoice) {
+    const today = new Date();
+    const formattedDate = today.toISOString().split("T")[0];
+    const dateLine = `gameDate = '${formattedDate}'`;
+
+    const levelLine = `gameLevel = ${gameLevel};`;
+
+    const roundRows = playerScores
+      .map((playerScore, roundIndex) =>
+        playerScore
+          .filter((score) => score.role !== null)
+          .map(
+            (score, playerIndex) =>
+              `(@lastTorneoId, ${roundIndex + 1}, '${
+                players[playerIndex]
+              }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
+          )
+      )
+      .flat();
+    return [dateLine, levelLine, ...roundRows].join(",\n");
+  }
+
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
 
   function openModal(round: number) {
@@ -69,26 +92,23 @@ const Ranking = () => {
     closeModal();
   }
 
-  function getRawText(playerScores: PlayerScore[][]) {
-    const today = new Date();
-    const formattedDate = today.toISOString().split("T")[0]; 
-    const dateLine = `gameDate = '${formattedDate}'`;
+  function getShuffledIndices(length: number) {
+    const indices = Array.from({ length }, (_, i) => i);
+    for (let i = length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    return indices;
+  }
 
-    const levelLine = `gameLevel = ${gameLevel};`;
-     
-    const roundRows = playerScores
-      .map((playerScore, roundIndex) =>
-        playerScore
-          .filter((score) => score.role !== null)
-          .map(
-            (score, playerIndex) =>
-              `(@lastTorneoId, ${roundIndex + 1}, '${
-                playerChoice[playerIndex]
-              }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
-          )
-      )
-      .flat();
-      return [dateLine, levelLine,...roundRows].join(",\n");  
+  function handleRandomize() {
+    if (playerChoice.length === 0) return;
+    const shuffledIndices = getShuffledIndices(playerChoice.length);
+    const newPlayerChoice = shuffledIndices.map(i => playerChoice[i]);
+    const newPlayerScores = playerScores.map(round => shuffledIndices.map(i => round[i]));
+    setPlayerChoice(newPlayerChoice);
+    setPlayerScores(newPlayerScores);
+    setRawText(getRawText(newPlayerScores, newPlayerChoice));
   }
 
   return (
@@ -152,6 +172,13 @@ const Ranking = () => {
           setRawText("");
         }}
       />
+      <button
+        type="button"
+        className="mt-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:ring-4 focus:outline-none focus:ring-green-300"
+        onClick={handleRandomize}
+      >
+        Randomize Order
+      </button>
       <div className="table w-full p-2">
         {playerChoice.length < 5 || playerChoice.length > 10 ? (
           <h2>Number of players must be between 5 and 10 players.</h2>
