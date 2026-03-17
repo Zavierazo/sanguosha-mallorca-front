@@ -26,7 +26,6 @@
     "react-dom": "^19.2.4",
     "react-modal": "^3.16.3",
     "react-router-dom": "^7.13.1",
-    "react-scripts": "5.0.1",
     "react-select": "^5.10.2",
     "typescript": "^5.9.3",
     "web-vitals": "^5.1.0"
@@ -35,17 +34,20 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "react-scripts test",
+    "test": "jest",
     "lint": "eslint .",
     "wrangler:deploy": "wrangler deploy",
     "wrangler:dev": "wrangler dev",
     "wrangler:start": "wrangler dev"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+  "jest": {
+    "testEnvironment": "jsdom",
+    "setupFilesAfterEnv": [
+      "<rootDir>/src/setupTests.ts"
+    ],
+    "moduleNameMapper": {
+      "\\.(css|less|scss|sass)$": "identity-obj-proxy"
+    }
   },
   "browserslist": {
     "production": [
@@ -66,6 +68,9 @@
     "eslint": "^10.0.3",
     "eslint-plugin-react": "^7.37.5",
     "globals": "^17.4.0",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.3.0",
     "tailwindcss": "^4.2.1",
     "typescript-eslint": "^8.57.1",
     "vite": "^8.0.0",
