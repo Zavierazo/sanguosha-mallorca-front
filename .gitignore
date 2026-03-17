@@ -25,3 +25,4 @@ yarn-error.log*
 
 # Wrangler
 .wrangler
+dist/
