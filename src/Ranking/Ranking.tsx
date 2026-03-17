@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Navbar from "../Navbar";
 import CreatableSelect from "react-select/creatable";
 import Modal from "react-modal";
@@ -44,40 +44,54 @@ const Ranking = () => {
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
   const [gameLevel, setGameLevel] = useState<number>(0);
-  const [gameDescription, setGameDescription] = useState<string>('');
-  const [lastTorneoId, setLastTorneoId] = useState<string>('');
-  const [isRanked, setIsRanked] = useState<boolean>(true);
+  const [gameDescription, setGameDescription] = useLocalStorage<string>(
+    "gameDescription-v1",
+    ""
+  );
+  const [lastTorneoId, setLastTorneoId] = useLocalStorage<string>(
+    "lastTorneoId-v1",
+    ""
+  );
+  const [isRanked, setIsRanked] = useLocalStorage<boolean>("isRanked-v1", true);
+
+  const getRawText = useCallback(
+    (
+      playerScores: PlayerScore[][],
+      players: string[] = playerChoice,
+      description: string = gameDescription
+    ) => {
+      const today = new Date();
+      const formattedDate = today.toISOString().split("T")[0];
+      const dateLine = `SET @gameDate = '${formattedDate}'`;
+
+      const levelLine = `SET @nivel = ${gameLevel}`;
+      const safeDescription = description.replace(/'/g, "''");
+      const descriptionLine = `SET @descripcion = '${safeDescription}'`;
+      const lastTorneoIdLine = `SET @lastTorneoId = ${lastTorneoId ? lastTorneoId : 'NULL'}`;
+      const isRankedLine = `SET @isRanked = ${isRanked ? 1 : 0}`;
+
+      const roundRows = playerScores
+        .map((playerScore, roundIndex) =>
+          playerScore
+            .filter((score) => score.role !== null)
+            .map(
+              (score, playerIndex) =>
+                `(@lastTorneoId, ${roundIndex + 1}, '${
+                  players[playerIndex]
+                }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
+            )
+        )
+        .flat();
+      const header = [dateLine, levelLine, descriptionLine, lastTorneoIdLine, isRankedLine].join("\n") + "\n";
+      const body = roundRows.join(",\n");
+      return header + body;
+    },
+    [gameDescription, gameLevel, isRanked, lastTorneoId, playerChoice]
+  );
 
   useEffect(() => {
     setRawText(getRawText(playerScores));
-  }, [gameLevel, gameDescription, lastTorneoId, isRanked]);
-
-  function getRawText(playerScores: PlayerScore[][], players: string[] = playerChoice) {
-    const today = new Date();
-    const formattedDate = today.toISOString().split("T")[0];
-    const dateLine = `SET @gameDate = '${formattedDate}'`;
-
-    const levelLine = `SET @nivel = ${gameLevel}`;
-    const descriptionLine = `SET @descripcion = '${gameDescription}'`;
-    const lastTorneoIdLine = `SET @lastTorneoId = ${lastTorneoId ? lastTorneoId : 'NULL'}`;
-    const isRankedLine = `SET @isRanked = ${isRanked ? 1 : 0}`;
-
-    const roundRows = playerScores
-      .map((playerScore, roundIndex) =>
-        playerScore
-          .filter((score) => score.role !== null)
-          .map(
-            (score, playerIndex) =>
-              `(@lastTorneoId, ${roundIndex + 1}, '${
-                players[playerIndex]
-              }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
-          )
-      )
-      .flat();
-    const header = [dateLine, levelLine, descriptionLine, lastTorneoIdLine, isRankedLine].join("\n") + "\n";
-    const body = roundRows.join(",\n");
-    return header + body;
-  }
+  }, [playerScores, playerChoice, gameLevel, gameDescription, lastTorneoId, isRanked, getRawText]);
 
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
 
