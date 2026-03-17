@@ -32,11 +32,11 @@
     "web-vitals": "^5.1.0"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "test": "react-scripts test",
     "lint": "eslint .",
-    "eject": "react-scripts eject",
     "wrangler:deploy": "wrangler deploy",
     "wrangler:dev": "wrangler dev",
     "wrangler:start": "wrangler dev"
@@ -62,11 +62,13 @@
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "@types/react-modal": "^3.16.3",
+    "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^10.0.3",
     "eslint-plugin-react": "^7.37.5",
     "globals": "^17.4.0",
-    "tailwindcss": "^3.4.19",
+    "tailwindcss": "^4.2.1",
     "typescript-eslint": "^8.57.1",
+    "vite": "^8.0.0",
     "wrangler": "^4.74.0"
   }
 }
