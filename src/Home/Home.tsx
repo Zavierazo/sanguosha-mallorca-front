@@ -93,6 +93,23 @@ const Home = () => {
                 </LinkItem>
               </div>
             </div>
+
+            {/* Card Eventos */}
+            <div className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden border-l-4 border-red-500">
+              <div className="bg-gradient-to-r from-red-500 to-red-600 px-8 py-6">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                  🎮 Eventos
+                </h2>
+              </div>
+              <div className="p-8">
+                <iframe 
+                  src="https://app.ludoya.com/embed/groups/sanguosha/events?view=LIST&tab=future" 
+                  style={{width: '100%', minHeight: '600px', border: 'none'}}
+                  loading="lazy" 
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
