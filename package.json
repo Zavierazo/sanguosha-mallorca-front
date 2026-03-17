@@ -50,6 +50,7 @@
     }
   },
   "overrides": {
+    // Overrides for deprecated packages
     "glob": "^10.0.0",
     "whatwg-encoding": "npm:@exodus/bytes",
     "inflight": "npm:lru-cache"
