@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useState } from "react";
 import Navbar from "../Navbar";
 import CreatableSelect from "react-select/creatable";
 import Modal from "react-modal";
-import players from "./players.json";
+import players from "./players.json"; // fallback
 import RankingModal from "../RankingModal";
 import { useLocalStorage } from "@uidotdev/usehooks";
 import { CopyBlock, dracula } from "react-code-blocks";
+import { StyleSheetManager } from "styled-components";
 
 export interface PlayerScore {
   role: string | null;
@@ -21,7 +22,16 @@ export interface GameScore {
   spyFinalTrio: boolean;
 }
 
-const playerOptions = players.map((player) => ({
+export interface TournamentData {
+  torneoId: string;
+  jugadores: string[];
+  jugadoresOrdenOriginal: string[];
+  maxNumPartida: number;
+  numJugadores: number;
+  isCompleted: boolean;
+}
+
+const initialPlayerOptions = players.map((player) => ({
   value: player.name,
   label: player.name,
 }));
@@ -29,6 +39,143 @@ const playerOptions = players.map((player) => ({
 Modal.setAppElement("#root");
 
 const Ranking = () => {
+  const [playerOptions, setPlayerOptions] = useState(initialPlayerOptions);
+
+  const fetchPlayersFromSheet = useCallback(async () => {
+    setUpdateStatus('updating');
+    const sheetId = import.meta.env.VITE_GOOGLE_SHEET_ID;
+    const sheetName = import.meta.env.VITE_GOOGLE_SHEET_NAME || "Sheet1";
+    if (!sheetId) {
+      setUpdateStatus('idle');
+      return;
+    }
+
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${sheetName}`;
+    
+    try {
+      const response = await fetch(sheetUrl);
+      if (!response.ok) {
+        throw new Error(`Google Sheet response status ${response.status}`);
+      }
+      const text = await response.text();
+
+      // sheet JSON is wrapped in JS function call
+      // Evitar el flag 's' para compatibilidad de TS con target es5/es2017
+      const jsonTextMatch = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
+      if (!jsonTextMatch) {
+        throw new Error("Formato de datos de Google Sheet desconocido");
+      }
+
+      const sheetData = JSON.parse(jsonTextMatch[1]);
+      const rows = sheetData?.table?.rows || [];
+
+      const options = rows
+        .map((row: any) => {
+          const playerName = row.c?.[3]?.v?.toString().trim(); // Columna D (índice 3)
+          const fecha = row.c?.[8]?.v; // Columna I (índice 8)
+          
+          if (!playerName) return null;
+          
+          // Filtrar por fecha mayor a hace 3 meses
+          if (fecha) {
+            let fechaJuego: Date;
+            
+            // Manejar diferentes formatos de fecha de Google Sheets
+            if (typeof fecha === 'string' && fecha.startsWith('Date(')) {
+              // Formato: Date(2026,2,13)
+              const match = fecha.match(/Date\((\d+),(\d+),(\d+)\)/);
+              if (match) {
+                // Los meses en JavaScript son 0-11, Google Sheets usa 1-12
+                fechaJuego = new Date(parseInt(match[1]), parseInt(match[2]), parseInt(match[3]));
+              } else {
+                return null;
+              }
+            } else {
+              // Formato ISO: "2026-02-13"
+              fechaJuego = new Date(fecha);
+            }
+            
+            const tresMesesAtras = new Date();
+            tresMesesAtras.setMonth(tresMesesAtras.getMonth() - 3);
+            
+            if (fechaJuego < tresMesesAtras) {
+              return null;
+            }
+          }
+          
+          return { value: playerName, label: playerName };
+        })
+        .filter(Boolean);
+
+      // Eliminar duplicados usando un Set
+      const uniqueOptions = Array.from(
+        new Map(options.map((opt: any) => [opt.value, opt])).values()
+      );
+
+      if (uniqueOptions.length > 0) {
+        setPlayerOptions(uniqueOptions as { value: string; label: string }[]);
+      }
+
+      // Obtener datos de torneos
+      const tournamentsMap = new Map<string, {
+        jugadores: Set<string>;
+        jugadoresOrdenOriginal: string[];
+        maxNumPartida: number;
+        numJugadores: number;
+      }>();
+      
+      rows.forEach((row: any) => {
+        const torneoId = row.c?.[1]?.v?.toString(); // Columna TorneoID (índice 1)
+        const playerName = row.c?.[3]?.v?.toString().trim(); // Columna Jugador (índice 3)
+        const numPartida = row.c?.[2]?.v; // Columna numPartida (índice 2)
+        const numJugadores = row.c?.[9]?.v; // Columna numJugadores (índice 9)
+        
+        if (torneoId && playerName) {
+          if (!tournamentsMap.has(torneoId)) {
+            tournamentsMap.set(torneoId, {
+              jugadores: new Set(),
+              jugadoresOrdenOriginal: [],
+              maxNumPartida: 0,
+              numJugadores: numJugadores || 0
+            });
+          }
+          const tournament = tournamentsMap.get(torneoId)!;
+          tournament.jugadores.add(playerName);
+          
+          // Añadir al orden original solo si no está ya en la lista (mantener primera aparición)
+          if (!tournament.jugadoresOrdenOriginal.includes(playerName)) {
+            tournament.jugadoresOrdenOriginal.push(playerName);
+          }
+          
+          if (numPartida && numPartida > tournament.maxNumPartida) {
+            tournament.maxNumPartida = numPartida;
+          }
+        }
+      });
+
+      const tournaments: TournamentData[] = Array.from(tournamentsMap.entries()).map(([torneoId, data]) => ({
+        torneoId,
+        jugadores: Array.from(data.jugadores).sort(),
+        jugadoresOrdenOriginal: data.jugadoresOrdenOriginal,
+        maxNumPartida: data.maxNumPartida,
+        numJugadores: data.numJugadores,
+        isCompleted: data.maxNumPartida >= data.numJugadores
+      }));
+
+      setTournamentsData(tournaments);
+      setUpdateStatus('done');
+      setTimeout(() => setUpdateStatus('idle'), 2000); // Reset after 2 seconds
+
+    } catch (error) {
+      console.error("Error leyendo jugadores desde Google Sheet:", error);
+      setUpdateStatus('idle');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPlayersFromSheet();
+  }, [fetchPlayersFromSheet]);
+
   const [playerChoice, setPlayerChoice] = useLocalStorage<string[]>(
     "playerChoice-v1",
     []
@@ -53,6 +200,58 @@ const Ranking = () => {
     ""
   );
   const [isRanked, setIsRanked] = useLocalStorage<boolean>("isRanked-v1", true);
+  const [tournamentsData, setTournamentsData] = useState<TournamentData[]>([]);
+  const [tournamentCheckMessage, setTournamentCheckMessage] = useState<string>("");
+  const [activeTournament, setActiveTournament] = useState<TournamentData | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'done'>('idle');
+
+  // Función para verificar si los jugadores actuales ya han jugado un torneo juntos
+  const checkTournamentHistory = useCallback((currentPlayers: string[]) => {
+    if (currentPlayers.length < 5) {
+      setTournamentCheckMessage("");
+      setActiveTournament(null);
+      return;
+    }
+
+    const sortedCurrentPlayers = currentPlayers.slice().sort();
+    
+    const matchingTournament = tournamentsData.find(tournament => {
+      const sortedTournamentPlayers = tournament.jugadores.slice().sort();
+      return sortedTournamentPlayers.length === sortedCurrentPlayers.length &&
+             sortedTournamentPlayers.every((player, index) => player === sortedCurrentPlayers[index]);
+    });
+
+    if (matchingTournament) {
+      setActiveTournament(matchingTournament);
+      if (matchingTournament.isCompleted) {
+        setTournamentCheckMessage(`⚠️ Estos jugadores ya han jugado juntos en el torneo ${matchingTournament.torneoId} (finalizado)`);
+      } else {
+        setTournamentCheckMessage(`🔴 Estos jugadores tienen un torneo activo juntos: ${matchingTournament.torneoId} (partida ${matchingTournament.maxNumPartida}/${matchingTournament.numJugadores})`);
+      }
+    } else {
+      setTournamentCheckMessage("✅ Estos jugadores no han jugado juntos en ningún torneo anterior");
+      setActiveTournament(null);
+    }
+  }, [tournamentsData]);
+
+  function handleTournamentOrder() {
+    if (!activeTournament || playerChoice.length === 0) return;
+    
+    // Filtrar el orden original para incluir solo los jugadores actuales
+    const tournamentOrder = activeTournament.jugadoresOrdenOriginal.filter(player => 
+      playerChoice.includes(player)
+    );
+    
+    // Reordenar playerChoice y playerScores según el orden del torneo
+    const currentIndexMap = new Map(playerChoice.map((player, index) => [player, index]));
+    const newPlayerScores = playerScores.map(round => 
+      tournamentOrder.map(player => round[currentIndexMap.get(player)!])
+    );
+    
+    setPlayerChoice(tournamentOrder);
+    setPlayerScores(newPlayerScores);
+    setRawText(getRawText(newPlayerScores, tournamentOrder));
+  }
 
   const getRawText = useCallback(
     (
@@ -92,6 +291,11 @@ const Ranking = () => {
   useEffect(() => {
     setRawText(getRawText(playerScores));
   }, [playerScores, playerChoice, gameLevel, gameDescription, lastTorneoId, isRanked, getRawText]);
+
+  // Verificar historial de torneos cuando cambian los jugadores
+  useEffect(() => {
+    checkTournamentHistory(playerChoice);
+  }, [playerChoice, checkTournamentHistory]);
 
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
 
@@ -197,7 +401,23 @@ const Ranking = () => {
         />
       </div>
     </div>      
-      <h2>Input the names in the order the players are sitting, starting with the ruler.</h2>
+      <div className="flex items-center justify-center gap-2 mb-4">
+        <button
+          type="button"
+          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300"
+          onClick={fetchPlayersFromSheet}
+          title="Actualizar datos desde Google Sheet"
+          disabled={updateStatus === 'updating'}
+        >
+          🔄 Actualizar jugadores
+        </button>
+        {updateStatus === 'updating' && (
+          <span className="text-yellow-600 text-sm font-medium">Actualizando...</span>
+        )}
+        {updateStatus === 'done' && (
+          <span className="text-green-600 text-sm font-medium">✅ Done</span>
+        )}
+      </div>
       <CreatableSelect
         isMulti
         isSearchable={true}
@@ -232,13 +452,33 @@ const Ranking = () => {
           setRawText("");
         }}
       />
+      {tournamentCheckMessage && (
+        <div className={`mt-2 p-2 rounded text-sm ${
+          tournamentCheckMessage.includes("🔴") 
+            ? "bg-red-100 text-red-800 border border-red-300" 
+            : tournamentCheckMessage.includes("⚠️") 
+            ? "bg-yellow-100 text-yellow-800 border border-yellow-300" 
+            : "bg-green-100 text-green-800 border border-green-300"
+        }`}>
+          {tournamentCheckMessage}
+        </div>
+      )}
       <button
         type="button"
         className="mt-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:ring-4 focus:outline-none focus:ring-green-300"
         onClick={handleRandomize}
       >
-        Randomize Order
+        🎲 Randomize Order
       </button>
+      {activeTournament && !activeTournament.isCompleted && (
+        <button
+          type="button"
+          className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 focus:ring-4 focus:outline-none focus:ring-purple-300"
+          onClick={handleTournamentOrder}
+        >
+          🏆 Tournament Order
+        </button>
+      )}
       <div className="table w-full p-2">
         {playerChoice.length < 5 || playerChoice.length > 10 ? (
           <h2>Number of players must be between 5 and 10 players.</h2>
@@ -324,12 +564,15 @@ const Ranking = () => {
             <div className="mt-5">
               <h3>Raw data</h3>
               <div className="text-sm text-gray-500 text-start">
-                <CopyBlock
-                  text={rawText}
-                  language={"SQL"}
-                  showLineNumbers={true}
-                  theme={dracula}
-                />
+                <StyleSheetManager shouldForwardProp={(prop) => !['codeBlock', 'copied'].includes(prop)}>
+                  <CopyBlock
+                    text={rawText}
+                    language={"SQL"}
+                    showLineNumbers={true}
+                    theme={dracula}
+                    codeBlock={false}
+                  />
+                </StyleSheetManager>
               </div>
             </div>
           </>
