@@ -31,6 +31,14 @@ export interface TournamentData {
   isCompleted: boolean;
 }
 
+interface GoogleSheetCell {
+  v?: string | number | null;
+}
+
+interface GoogleSheetRow {
+  c?: GoogleSheetCell[] | null;
+}
+
 const initialPlayerOptions = players.map((player) => ({
   value: player.name,
   label: player.name,
@@ -70,7 +78,7 @@ const Ranking = () => {
       const rows = sheetData?.table?.rows || [];
 
       const options = rows
-        .map((row: any) => {
+        .map((row: GoogleSheetRow) => {
           const playerName = row.c?.[3]?.v?.toString().trim(); // Columna D (índice 3)
           const fecha = row.c?.[8]?.v; // Columna I (índice 8)
           
@@ -109,7 +117,7 @@ const Ranking = () => {
 
       // Eliminar duplicados usando un Set
       const uniqueOptions = Array.from(
-        new Map(options.map((opt: any) => [opt.value, opt])).values()
+        new Map(options.map((opt: { value: string; label: string }) => [opt.value, opt])).values()
       );
 
       if (uniqueOptions.length > 0) {
@@ -124,7 +132,7 @@ const Ranking = () => {
         numJugadores: number;
       }>();
       
-      rows.forEach((row: any) => {
+      rows.forEach((row: GoogleSheetRow) => {
         const torneoId = row.c?.[1]?.v?.toString(); // Columna TorneoID (índice 1)
         const playerName = row.c?.[3]?.v?.toString().trim(); // Columna Jugador (índice 3)
         const numPartida = row.c?.[2]?.v; // Columna numPartida (índice 2)
@@ -136,7 +144,7 @@ const Ranking = () => {
               jugadores: new Set(),
               jugadoresOrdenOriginal: [],
               maxNumPartida: 0,
-              numJugadores: numJugadores || 0
+              numJugadores: typeof numJugadores === 'number' ? numJugadores : Number(numJugadores) || 0
             });
           }
           const tournament = tournamentsMap.get(torneoId)!;
@@ -147,8 +155,8 @@ const Ranking = () => {
             tournament.jugadoresOrdenOriginal.push(playerName);
           }
           
-          if (numPartida && numPartida > tournament.maxNumPartida) {
-            tournament.maxNumPartida = numPartida;
+          if (numPartida && Number(numPartida) > tournament.maxNumPartida) {
+            tournament.maxNumPartida = Number(numPartida);
           }
         }
       });
