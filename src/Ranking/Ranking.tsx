@@ -48,6 +48,7 @@ Modal.setAppElement("#root");
 
 const Ranking = () => {
   const [playerOptions, setPlayerOptions] = useState(initialPlayerOptions);
+  const [monthsFilter, setMonthsFilter] = useState<number>(3);
 
   const fetchPlayersFromSheet = useCallback(async () => {
     setUpdateStatus('updating');
@@ -76,6 +77,9 @@ const Ranking = () => {
 
       const sheetData = JSON.parse(jsonTextMatch[1]);
       const rows = sheetData?.table?.rows || [];
+      
+      // Capturar el valor actual de monthsFilter
+      const currentMonthsFilter = monthsFilter;
 
       const options = rows
         .map((row: GoogleSheetRow) => {
@@ -84,7 +88,7 @@ const Ranking = () => {
           
           if (!playerName) return null;
           
-          // Filtrar por fecha mayor a hace 3 meses
+          // Filtrar por fecha mayor a hace N meses
           if (fecha) {
             let fechaJuego: Date;
             
@@ -103,10 +107,10 @@ const Ranking = () => {
               fechaJuego = new Date(fecha);
             }
             
-            const tresMesesAtras = new Date();
-            tresMesesAtras.setMonth(tresMesesAtras.getMonth() - 3);
+            const filterDate = new Date();
+            filterDate.setMonth(filterDate.getMonth() - currentMonthsFilter);
             
-            if (fechaJuego < tresMesesAtras) {
+            if (fechaJuego < filterDate) {
               return null;
             }
           }
@@ -178,7 +182,7 @@ const Ranking = () => {
       console.error("Error leyendo jugadores desde Google Sheet:", error);
       setUpdateStatus('idle');
     }
-  }, []);
+  }, [monthsFilter]);
 
   useEffect(() => {
     fetchPlayersFromSheet();
@@ -433,6 +437,16 @@ const Ranking = () => {
       </div>
     </div>      
       <div className="flex items-center justify-center gap-2 mb-4">
+        <input
+          type="number"
+          min="1"
+          max="120"
+          value={monthsFilter}
+          onChange={(e) => setMonthsFilter(Math.max(1, Math.min(120, parseInt(e.target.value) || 3)))}
+          className="w-16 px-2 py-1 text-sm border border-gray-300 rounded"
+          title="Número de meses hacia atrás para filtrar jugadores"
+        />
+        <span className="text-sm text-gray-600">meses</span>
         <button
           type="button"
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300"
