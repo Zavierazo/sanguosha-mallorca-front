@@ -212,6 +212,8 @@ const Ranking = () => {
   const [tournamentCheckMessage, setTournamentCheckMessage] = useState<string>("");
   const [activeTournament, setActiveTournament] = useState<TournamentData | null>(null);
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'done'>('idle');
+  const [originalPlayerOrder, setOriginalPlayerOrder] = useState<string[]>([]);
+  const [hasBeenRandomized, setHasBeenRandomized] = useState<boolean>(false);
 
   // Función para verificar si los jugadores actuales ya han jugado un torneo juntos
   const checkTournamentHistory = useCallback((currentPlayers: string[]) => {
@@ -341,12 +343,33 @@ const Ranking = () => {
 
   function handleRandomize() {
     if (playerChoice.length === 0) return;
+    
+    // Guardar el orden original solo la primera vez que se randomiza
+    if (!hasBeenRandomized) {
+      setOriginalPlayerOrder([...playerChoice]);
+      setHasBeenRandomized(true);
+    }
+    
     const shuffledIndices = getShuffledIndices(playerChoice.length);
     const newPlayerChoice = shuffledIndices.map(i => playerChoice[i]);
     const newPlayerScores = playerScores.map(round => shuffledIndices.map(i => round[i]));
     setPlayerChoice(newPlayerChoice);
     setPlayerScores(newPlayerScores);
     setRawText(getRawText(newPlayerScores, newPlayerChoice));
+  }
+
+  function handleRestoreOriginalOrder() {
+    if (originalPlayerOrder.length === 0) return;
+    
+    // Crear un mapa para restaurar los scores al orden original
+    const currentIndexMap = new Map(playerChoice.map((player, index) => [player, index]));
+    const newPlayerScores = playerScores.map(round => 
+      originalPlayerOrder.map(player => round[currentIndexMap.get(player)!])
+    );
+    
+    setPlayerChoice(originalPlayerOrder);
+    setPlayerScores(newPlayerScores);
+    setRawText(getRawText(newPlayerScores, originalPlayerOrder));
   }
 
   return (
@@ -458,6 +481,9 @@ const Ranking = () => {
             })
           );
           setRawText("");
+          // Resetear estados de randomización cuando cambian los jugadores
+          setOriginalPlayerOrder([]);
+          setHasBeenRandomized(false);
         }}
       />
       {tournamentCheckMessage && (
@@ -478,6 +504,16 @@ const Ranking = () => {
       >
         🎲 Randomize Order
       </button>
+      {hasBeenRandomized && (
+        <button
+          type="button"
+          className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 focus:ring-4 focus:outline-none focus:ring-orange-300"
+          onClick={handleRestoreOriginalOrder}
+          title="Restaurar al orden original en que se introdujeron los jugadores"
+        >
+          ↩️ Restore Original Order
+        </button>
+      )}
       {activeTournament && !activeTournament.isCompleted && (
         <button
           type="button"
