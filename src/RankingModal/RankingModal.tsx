@@ -348,9 +348,6 @@ const RankingModal = ({
       }
     }
     if (playersData.winner === "Rebel") {
-      if (pointsData.rebelAlive === 0) {
-        errors.push("If Rebel is the winner, at least one rebel must be alive");
-      }
       if (pointsData.kingAlive > 0) {
         errors.push("If Rebel is the winner, no king must be alive");
       }
