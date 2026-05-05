@@ -1,3 +1,21 @@
 .RankingModal-component {
   display: flex;
+  flex-direction: column;
+}
+
+/* Limitar ancho de dropdowns en móvil */
+.RankingModal-component .MuiFormControl-root,
+.RankingModal-component .MuiTextField-root {
+  max-width: 200px !important;
+  width: 100%;
+}
+
+/* Asegurar que los inputs no se desborden */
+.RankingModal-component .MuiInputBase-root {
+  max-width: 200px;
+}
+
+/* Contenedor de los formularios */
+.RankingModal-component form {
+  width: 100%;
 }

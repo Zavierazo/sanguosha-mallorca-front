@@ -47,11 +47,11 @@ const RankingModal = ({
         return {
           ...acc,
           [`${player}_role`]: playerRole,
-          [`${player}_alive`]: playerAlive ?? false,
+          [`${player}_alive`]: playerAlive ?? true,
         };
       },
       {
-        winner: previousScore?.winner ?? null,
+        winner: previousScore?.winner ?? "King",
       }
     ),
   };
@@ -96,17 +96,16 @@ const RankingModal = ({
     type: "VerticalLayout",
     elements: [
       {
-        type: "HorizontalLayout",
-        elements: [
-          {
-            type: "Control",
-            scope: `#/properties/winner`,
-            label: "Winner?",
-            options: {
-             autocomplete: false, // <-- fuerza select simple
-            },
-          },
-        ],
+        type: "Control",
+        scope: `#/properties/winner`,
+        label: "Winner?",
+        options: {
+         autocomplete: false,
+        },
+        style: {
+          maxWidth: "120px",
+          minWidth: "100px",
+        },
       },
       ...players
         .map((player) => [
@@ -122,7 +121,11 @@ const RankingModal = ({
                 scope: `#/properties/${player}_role`,
                 label: "Role",
                 options: {
-                 autocomplete: false, // <-- fuerza select simple
+                 autocomplete: false,
+                },
+                style: {
+                  maxWidth: "120px",
+                  minWidth: "100px",
                 },
               },
               {
@@ -235,6 +238,7 @@ const RankingModal = ({
           winner:
             playersData.winner === role ||
             (playersData.winner === "King" && role === "Loyalist"),
+          imported: false,
         };
       }),
       {
@@ -395,6 +399,9 @@ const RankingModal = ({
             setPlayersDataValid((errors?.length ?? 0) === 0);
             setPlayersData(data);
           }}
+          config={{
+            generateId: true,
+          }}
         />
         <JsonForms
           schema={dynamicDataSchema}
@@ -405,6 +412,9 @@ const RankingModal = ({
           onChange={({ errors, data }) => {
             setDynamicDataValid((errors?.length ?? 0) === 0);
             setDynamicData(data);
+          }}
+          config={{
+            generateId: true,
           }}
         />
       </div>

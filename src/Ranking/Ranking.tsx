@@ -13,6 +13,7 @@ export interface PlayerScore {
   score: number;
   alive: boolean;
   winner: boolean;
+  imported?: boolean; // Marca si la fila fue importada del Google Sheet
 }
 export interface GameScore {
   winner: string | null;
@@ -29,6 +30,7 @@ export interface TournamentData {
   maxNumPartida: number;
   numJugadores: number;
   isCompleted: boolean;
+  scoringSystem: string | null;
 }
 
 interface GoogleSheetCell {
@@ -134,6 +136,7 @@ const Ranking = () => {
         jugadoresOrdenOriginal: string[];
         maxNumPartida: number;
         numJugadores: number;
+        scoringSystem: string | null;
       }>();
       
       rows.forEach((row: GoogleSheetRow) => {
@@ -141,6 +144,22 @@ const Ranking = () => {
         const playerName = row.c?.[3]?.v?.toString().trim(); // Columna Jugador (índice 3)
         const numPartida = row.c?.[2]?.v; // Columna numPartida (índice 2)
         const numJugadores = row.c?.[9]?.v; // Columna numJugadores (índice 9)
+        // Parse scoring_system - puede ser Date(YYYY,M,D) o string directo
+        let scoringSystem: string | null = null;
+        const scoringRaw = row.c?.[11]?.v;
+        if (scoringRaw) {
+          if (typeof scoringRaw === 'string' && scoringRaw.startsWith('Date(')) {
+            const match = scoringRaw.match(/Date\((\d+),(\d+),(\d+)\)/);
+            if (match) {
+              const year = match[1];
+              const month = String(parseInt(match[2]) + 1).padStart(2, '0'); // Meses 0-indexed
+              const day = String(parseInt(match[3])).padStart(2, '0');
+              scoringSystem = `${year}-${month}-${day}`;
+            }
+          } else {
+            scoringSystem = scoringRaw.toString().trim();
+          }
+        }
         
         if (torneoId && playerName) {
           if (!tournamentsMap.has(torneoId)) {
@@ -148,13 +167,14 @@ const Ranking = () => {
               jugadores: new Set(),
               jugadoresOrdenOriginal: [],
               maxNumPartida: 0,
-              numJugadores: typeof numJugadores === 'number' ? numJugadores : Number(numJugadores) || 0
+              numJugadores: typeof numJugadores === 'number' ? numJugadores : Number(numJugadores) || 0,
+              scoringSystem: scoringSystem
             });
           }
           const tournament = tournamentsMap.get(torneoId)!;
           tournament.jugadores.add(playerName);
           
-          // Añadir al orden original solo si no está ya en la lista (mantener primera aparición)
+          // Añadir al orden original solo si no está ya en la lista (mantener primera aparición por orden de ID del sheet)
           if (!tournament.jugadoresOrdenOriginal.includes(playerName)) {
             tournament.jugadoresOrdenOriginal.push(playerName);
           }
@@ -171,7 +191,8 @@ const Ranking = () => {
         jugadoresOrdenOriginal: data.jugadoresOrdenOriginal,
         maxNumPartida: data.maxNumPartida,
         numJugadores: data.numJugadores,
-        isCompleted: data.maxNumPartida >= data.numJugadores
+        isCompleted: data.maxNumPartida >= data.numJugadores,
+        scoringSystem: data.scoringSystem
       }));
 
       setTournamentsData(tournaments);
@@ -217,6 +238,7 @@ const Ranking = () => {
   const [activeTournament, setActiveTournament] = useState<TournamentData | null>(null);
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'updating' | 'done'>('idle');
   const [originalPlayerOrder, setOriginalPlayerOrder] = useState<string[]>([]);
+  const [introductionOrder, setIntroductionOrder] = useState<string[]>([]);
   const [hasBeenRandomized, setHasBeenRandomized] = useState<boolean>(false);
 
   // Función para verificar si los jugadores actuales ya han jugado un torneo juntos
@@ -248,8 +270,72 @@ const Ranking = () => {
     }
   }, [tournamentsData]);
 
+  const fetchTournamentData = useCallback(async (torneoId: string) => {
+    const sheetId = import.meta.env.VITE_GOOGLE_SHEET_ID;
+    const sheetName = import.meta.env.VITE_GOOGLE_SHEET_NAME || "Sheet1";
+    if (!sheetId) {
+      return null;
+    }
+
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${sheetName}`;
+    
+    try {
+      const response = await fetch(sheetUrl);
+      if (!response.ok) {
+        throw new Error(`Google Sheet response status ${response.status}`);
+      }
+      const text = await response.text();
+
+      const jsonTextMatch = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
+      if (!jsonTextMatch) {
+        throw new Error("Formato de datos de Google Sheet desconocido");
+      }
+
+      const sheetData = JSON.parse(jsonTextMatch[1]);
+      const rows = sheetData?.table?.rows || [];
+      
+      // Filtrar filas por torneoId
+      const tournamentRows = rows.filter((row: GoogleSheetRow) => {
+        const rowTorneoId = row.c?.[1]?.v?.toString();
+        return rowTorneoId === torneoId;
+      });
+
+      // Agrupar por numPartida y mapear a jugadores
+      const tournamentData: Map<number, Map<string, { role: string; score: number; winner: boolean }>> = new Map();
+      
+      tournamentRows.forEach((row: GoogleSheetRow) => {
+        const numPartida = row.c?.[2]?.v as number;
+        const playerName = row.c?.[3]?.v?.toString().trim();
+        const role = row.c?.[4]?.v?.toString();
+        const score = row.c?.[5]?.v as number;
+        const winner = (row.c?.[6]?.v as number) === 1;
+        
+        if (numPartida && playerName && role) {
+          if (!tournamentData.has(numPartida)) {
+            tournamentData.set(numPartida, new Map());
+          }
+          tournamentData.get(numPartida)!.set(playerName, { role, score, winner });
+        }
+      });
+
+      return tournamentData;
+    } catch (error) {
+      console.error("Error fetching tournament data:", error);
+      return null;
+    }
+  }, []);
+
   function handleTournamentOrder() {
     if (!activeTournament || playerChoice.length === 0) return;
+    
+    // Redirect to old ranking site for 2021 scoring system
+    if (activeTournament.scoringSystem === '2021-04-01') {
+      window.location.href = 'https://sanguosha.es/alvaro/ranking';
+      return;
+    }
+
+    // Auto-fill the continuation torneo ID
+    setLastTorneoId(activeTournament.torneoId.toString());
     
     // Filtrar el orden original para incluir solo los jugadores actuales
     const tournamentOrder = activeTournament.jugadoresOrdenOriginal.filter(player => 
@@ -265,6 +351,58 @@ const Ranking = () => {
     setPlayerChoice(tournamentOrder);
     setPlayerScores(newPlayerScores);
     setRawText(getRawText(newPlayerScores, tournamentOrder));
+
+    // Importar datos del torneo desde Google Sheet
+    fetchTournamentData(activeTournament.torneoId.toString()).then(tournamentData => {
+      if (tournamentData && tournamentData.size > 0) {
+        // Crear matriz de puntuaciones para los jugadores actuales
+        const maxRound = Math.max(...Array.from(tournamentData.keys()));
+        const importedScores: PlayerScore[][] = [];
+        const importedGameScores: GameScore[] = [];
+        
+        for (let round = 1; round <= maxRound; round++) {
+          const roundData = tournamentData.get(round);
+          if (roundData) {
+            const roundScores: PlayerScore[] = tournamentOrder.map(player => {
+              const playerData = roundData.get(player);
+              if (playerData) {
+                return {
+                  role: playerData.role,
+                  score: playerData.score,
+                  alive: true, // Por defecto, asumimos que están vivos
+                  winner: playerData.winner,
+                  imported: true // Marcar como importado del Google Sheet
+                };
+              }
+              return {
+                role: null,
+                score: 0,
+                alive: true,
+                winner: false,
+                imported: false // Marcar como no importado
+              };
+            });
+            importedScores.push(roundScores);
+            
+            // Crear GameScore para esta ronda (valores por defecto)
+            importedGameScores.push({
+              winner: null,
+              loyalDeathOnLastRebelDeath: 0,
+              spyRebelKilled: 0,
+              spyFinalDuel: false,
+              spyFinalTrio: false
+            });
+          }
+        }
+        
+        // Actualizar los scores con los datos importados
+        if (importedScores.length > 0) {
+          setPlayerScores(importedScores);
+          setGameScores(importedGameScores);
+          setRawText(getRawText(importedScores, tournamentOrder));
+        }
+      }
+    });
   }
 
   const getRawText = useCallback(
@@ -286,7 +424,7 @@ const Ranking = () => {
       const roundRows = playerScores
         .map((playerScore, roundIndex) =>
           playerScore
-            .filter((score) => score.role !== null)
+            .filter((score) => score.role !== null && !score.imported) // Excluir filas importadas
             .map(
               (score, playerIndex) =>
                 `(@lastTorneoId, ${roundIndex + 1}, '${
@@ -324,12 +462,40 @@ const Ranking = () => {
   }
 
   function submitRoundData(player: PlayerScore[], game: GameScore) {
-    const newPlayerScores = playerScores.map((playerScore, index) =>
+    // Si currentRound está fuera de rango, extender los arrays
+    let newPlayerScores = [...playerScores];
+    let newGameScores = [...gameScores];
+    
+    if (currentRound > newPlayerScores.length) {
+      // Extender arrays hasta incluir currentRound
+      while (newPlayerScores.length < currentRound) {
+        newPlayerScores.push(player.map(() => ({
+          role: null,
+          score: 0,
+          alive: true,
+          winner: false,
+          imported: false,
+        })));
+      }
+      while (newGameScores.length < currentRound) {
+        newGameScores.push({
+          winner: null,
+          loyalDeathOnLastRebelDeath: 0,
+          spyRebelKilled: 0,
+          spyFinalDuel: false,
+          spyFinalTrio: false,
+        });
+      }
+    }
+    
+    // Actualizar la ronda actual
+    newPlayerScores = newPlayerScores.map((playerScore, index) =>
       index === currentRound - 1 ? player : playerScore
     );
-    const newGameScores = gameScores.map((gameScore, index) =>
+    newGameScores = newGameScores.map((gameScore, index) =>
       index === currentRound - 1 ? game : gameScore
     );
+    
     setPlayerScores(newPlayerScores);
     setGameScores(newGameScores);
     setRawText(getRawText(newPlayerScores));
@@ -354,26 +520,53 @@ const Ranking = () => {
       setHasBeenRandomized(true);
     }
     
+    // Limpiar filas importadas del Google Sheet
+    const cleanedScores = playerScores.map(round => 
+      round.map(score => ({
+        ...score,
+        role: score.imported ? null : score.role,
+        score: score.imported ? 0 : score.score,
+        winner: score.imported ? false : score.winner,
+        imported: false
+      }))
+    );
+    
     const shuffledIndices = getShuffledIndices(playerChoice.length);
     const newPlayerChoice = shuffledIndices.map(i => playerChoice[i]);
-    const newPlayerScores = playerScores.map(round => shuffledIndices.map(i => round[i]));
+    const newPlayerScores = cleanedScores.map(round => shuffledIndices.map(i => round[i]));
+    
     setPlayerChoice(newPlayerChoice);
     setPlayerScores(newPlayerScores);
     setRawText(getRawText(newPlayerScores, newPlayerChoice));
   }
 
   function handleRestoreOriginalOrder() {
-    if (originalPlayerOrder.length === 0) return;
+    // Usar el orden de introducción del componente en lugar del orden guardado
+    // Filtrar introductionOrder para incluir solo los jugadores actuales
+    const filteredIntroductionOrder = introductionOrder.filter(player => playerChoice.includes(player));
+    const orderToRestore = filteredIntroductionOrder.length > 0 ? filteredIntroductionOrder : originalPlayerOrder;
+    if (orderToRestore.length === 0) return;
+    
+    // Limpiar filas importadas del Google Sheet
+    const cleanedScores = playerScores.map(round => 
+      round.map(score => ({
+        ...score,
+        role: score.imported ? null : score.role,
+        score: score.imported ? 0 : score.score,
+        winner: score.imported ? false : score.winner,
+        imported: false
+      }))
+    );
     
     // Crear un mapa para restaurar los scores al orden original
     const currentIndexMap = new Map(playerChoice.map((player, index) => [player, index]));
-    const newPlayerScores = playerScores.map(round => 
-      originalPlayerOrder.map(player => round[currentIndexMap.get(player)!])
+    const newPlayerScores = cleanedScores.map(round => 
+      orderToRestore.map(player => round[currentIndexMap.get(player)!])
     );
     
-    setPlayerChoice(originalPlayerOrder);
+    setPlayerChoice(orderToRestore);
     setPlayerScores(newPlayerScores);
-    setRawText(getRawText(newPlayerScores, originalPlayerOrder));
+    setRawText(getRawText(newPlayerScores, orderToRestore));
   }
 
   return (
@@ -438,6 +631,8 @@ const Ranking = () => {
     </div>      
       <div className="flex items-center justify-center gap-2 mb-4">
         <input
+          id="monthsFilter"
+          name="monthsFilter"
           type="number"
           min="1"
           max="120"
@@ -475,6 +670,19 @@ const Ranking = () => {
         onChange={(choices) => {
           const selectedValues = choices.map((option) => option.value);
           setPlayerChoice(selectedValues);
+          
+          // Capturar el orden de introducción (manejar borrados y reintroducciones)
+          const currentIntroductionOrder = [...introductionOrder];
+          
+          // Mantener los jugadores que siguen seleccionados en su posición actual
+          const remainingPlayers = currentIntroductionOrder.filter(player => selectedValues.includes(player));
+          
+          // Añadir los jugadores nuevos o reintroducidos al final
+          const newOrReintroducedPlayers = selectedValues.filter(player => !remainingPlayers.includes(player));
+          const updatedIntroductionOrder = [...remainingPlayers, ...newOrReintroducedPlayers];
+          
+          setIntroductionOrder(updatedIntroductionOrder);
+          
           setPlayerScores(
             new Array<PlayerScore[]>(selectedValues.length).fill(
               new Array<PlayerScore>(selectedValues.length).fill({
@@ -482,6 +690,7 @@ const Ranking = () => {
                 score: 0,
                 alive: true,
                 winner: false,
+                imported: false,
               })
             )
           );
@@ -497,6 +706,7 @@ const Ranking = () => {
           setRawText("");
           // Resetear estados de randomización cuando cambian los jugadores
           setOriginalPlayerOrder([]);
+          setIntroductionOrder([]);
           setHasBeenRandomized(false);
         }}
       />
@@ -529,13 +739,35 @@ const Ranking = () => {
         </button>
       )}
       {activeTournament && !activeTournament.isCompleted && (
-        <button
-          type="button"
-          className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 focus:ring-4 focus:outline-none focus:ring-purple-300"
-          onClick={handleTournamentOrder}
-        >
-          🏆 Tournament Order
-        </button>
+        <>
+          {(activeTournament.scoringSystem === '2024-01-01' || activeTournament.scoringSystem === null) && (
+            <button
+              type="button"
+              className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 focus:ring-4 focus:outline-none focus:ring-purple-300"
+              onClick={handleTournamentOrder}
+            >
+              🏆 Continue Tournament
+            </button>
+          )}
+          {activeTournament.scoringSystem === '2021-04-01' && (
+            <button
+              type="button"
+              className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 focus:ring-4 focus:outline-none focus:ring-orange-300"
+              onClick={handleTournamentOrder}
+            >
+              🏆 Torneo de 2021
+            </button>
+          )}
+          {activeTournament.scoringSystem && activeTournament.scoringSystem < '2021-04-01' && (
+            <button
+              type="button"
+              disabled
+              className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-gray-400 rounded-lg cursor-not-allowed"
+            >
+              🏆 Torneo anterior a 2021
+            </button>
+          )}
+        </>
       )}
       <div className="table w-full p-2">
         {playerChoice.length < 5 || playerChoice.length > 10 ? (
@@ -590,7 +822,10 @@ const Ranking = () => {
                             : "") +
                           (playerScores[index]?.[playerIndex]?.alive
                             ? ""
-                            : " text-red-500")
+                            : " text-red-500") +
+                          (playerScores[index]?.[playerIndex]?.imported
+                            ? " bg-blue-50 border-l-4 border-l-blue-400"
+                            : "")
                         }
                       >
                         {playerScores[index]?.[playerIndex]?.role &&
