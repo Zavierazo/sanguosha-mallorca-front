@@ -708,6 +708,8 @@ const Ranking = () => {
           setOriginalPlayerOrder([]);
           setIntroductionOrder([]);
           setHasBeenRandomized(false);
+          // Limpiar ID de continuación de torneo porque cambió la lista de jugadores
+          setLastTorneoId("");
         }}
       />
       {tournamentCheckMessage && (
@@ -802,7 +804,7 @@ const Ranking = () => {
                   <tr key={index} className="bg-gray-50 text-center">
                     <td className="p-2 border-r">
                       <div className="flex items-center justify-center gap-2">
-                        <span>Round&nbsp;{round}</span>
+                        <span>{round}</span>
                         <button
                           type="button"
                           className="px-2 py-1 text-xs font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
