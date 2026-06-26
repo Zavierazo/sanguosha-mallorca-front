@@ -488,13 +488,6 @@ const Ranking = () => {
     checkTournamentHistory(playerChoice);
   }, [playerChoice, checkTournamentHistory]);
 
-  // Autocompletar gameLevel con el nivel mínimo de los jugadores seleccionados
-  useEffect(() => {
-    if (playerChoice.length > 0) {
-      const minLevel = calculateMinLevel(playerChoice);
-      setGameLevel(minLevel);
-    }
-  }, [playerChoice, calculateMinLevel]);
 
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
 
@@ -639,28 +632,16 @@ const Ranking = () => {
         onChange={(e) => setGameDescription(e.target.value)}
         className="mt-1 border border-gray-300 rounded px-2 py-1"
       />
-      <label htmlFor="lastTorneoId" className="block text-lg font-medium mt-4">
-        Continuación de torneo:
-      </label>
-      <input
-        id="lastTorneoId"
-        type="number"
-        min="0"
-        max="999"
-        value={lastTorneoId}
-        onChange={(e) => setLastTorneoId(e.target.value)}
-        className="mt-1 border border-gray-300 rounded px-2 py-1"
-      />
-      <label htmlFor="isRanked" className="block text-lg font-medium mt-4">
-        Ranked:
-      </label>
-      <div className="mt-1">
+      <div className="flex items-center justify-center mt-4">
+        <label htmlFor="isRanked" className="text-lg font-medium">
+          Ranked:
+        </label>
         <input
           id="isRanked"
           type="checkbox"
           checked={isRanked}
           onChange={(e) => setIsRanked(e.target.checked)}
-          className="w-4 h-4"
+          className="ml-2 w-4 h-4"
         />
       </div>
     </div>      
@@ -718,6 +699,10 @@ const Ranking = () => {
           
           setIntroductionOrder(updatedIntroductionOrder);
           
+          // Auto-seleccionar el nivel mínimo de los jugadores
+          const minLevel = calculateMinLevel(selectedValues);
+          setGameLevel(minLevel);
+          
           setPlayerScores(
             new Array<PlayerScore[]>(selectedValues.length).fill(
               new Array<PlayerScore>(selectedValues.length).fill({
@@ -758,28 +743,42 @@ const Ranking = () => {
           {tournamentCheckMessage}
         </div>
       )}
+      <div className="flex items-center justify-center mt-2">
+        <label htmlFor="gameLevel" className="text-sm font-medium">
+          Game level:
+        </label>
+        <select
+          id="gameLevel"
+          value={gameLevel}
+          onChange={(e) => setGameLevel(Number(e.target.value))}
+          className="ml-2 border border-gray-300 rounded px-2 py-1"
+        >
+          {Array.from({ length: 16 }, (_, i) => (
+            <option key={i} value={i}>
+              {i}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="lastTorneoId" className="ml-4 text-sm font-medium">
+          Continuación de torneo:
+        </label>
+        <input
+          id="lastTorneoId"
+          type="number"
+          min="0"
+          max="999"
+          value={lastTorneoId}
+          onChange={(e) => setLastTorneoId(e.target.value)}
+          className="ml-2 border border-gray-300 rounded px-2 py-1"
+        />
+      </div>
       <button
         type="button"
-        className="mt-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:ring-4 focus:outline-none focus:ring-green-300"
+        className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:ring-4 focus:outline-none focus:ring-green-300"
         onClick={handleRandomize}
       >
         🎲 Randomize Order
       </button>
-      <label htmlFor="gameLevel" className="mt-2 ml-2 text-sm font-medium">
-        Game level:
-      </label>
-      <select
-        id="gameLevel"
-        value={gameLevel}
-        onChange={(e) => setGameLevel(Number(e.target.value))}
-        className="mt-2 ml-2 border border-gray-300 rounded px-2 py-1"
-      >
-        {Array.from({ length: 16 }, (_, i) => (
-          <option key={i} value={i}>
-            {i}
-          </option>
-        ))}
-      </select>
       {hasBeenRandomized && (
         <button
           type="button"
