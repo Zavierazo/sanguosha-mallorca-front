@@ -130,6 +130,34 @@ const Ranking = () => {
         setPlayerOptions(uniqueOptions as { value: string; label: string }[]);
       }
 
+      // Leer niveles de jugadores desde la pestaña "Exp" (columna F, índice 5)
+      const expSheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=Exp`;
+      try {
+        const expResponse = await fetch(expSheetUrl);
+        if (expResponse.ok) {
+          const expText = await expResponse.text();
+          const expJsonTextMatch = expText.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
+          if (expJsonTextMatch) {
+            const expSheetData = JSON.parse(expJsonTextMatch[1]);
+            const expRows = expSheetData?.table?.rows || [];
+            
+            const levelsMap = new Map<string, number | null>();
+            expRows.forEach((row: GoogleSheetRow) => {
+              const playerName = row.c?.[0]?.v?.toString().trim(); // Columna A (índice 0) - nombre del jugador
+              const level = row.c?.[5]?.v; // Columna F (índice 5) - nivel
+              
+              if (playerName) {
+                levelsMap.set(playerName, level !== null && level !== undefined ? Number(level) : null);
+              }
+            });
+            
+            setPlayerLevels(levelsMap);
+          }
+        }
+      } catch (error) {
+        console.error("Error leyendo niveles desde pestaña Exp:", error);
+      }
+
       // Obtener datos de torneos
       const tournamentsMap = new Map<string, {
         jugadores: Set<string>;
@@ -240,6 +268,17 @@ const Ranking = () => {
   const [originalPlayerOrder, setOriginalPlayerOrder] = useState<string[]>([]);
   const [introductionOrder, setIntroductionOrder] = useState<string[]>([]);
   const [hasBeenRandomized, setHasBeenRandomized] = useState<boolean>(false);
+  const [playerLevels, setPlayerLevels] = useState<Map<string, number | null>>(new Map());
+
+  // Función para calcular el nivel mínimo de los jugadores seleccionados
+  const calculateMinLevel = useCallback((players: string[]) => {
+    const levels = players
+      .map(player => playerLevels.get(player))
+      .filter((level): level is number => level !== null && level !== undefined);
+    
+    if (levels.length === 0) return 0;
+    return Math.min(...levels);
+  }, [playerLevels]);
 
   // Función para verificar si los jugadores actuales ya han jugado un torneo juntos
   const checkTournamentHistory = useCallback((currentPlayers: string[]) => {
@@ -449,6 +488,14 @@ const Ranking = () => {
     checkTournamentHistory(playerChoice);
   }, [playerChoice, checkTournamentHistory]);
 
+  // Autocompletar gameLevel con el nivel mínimo de los jugadores seleccionados
+  useEffect(() => {
+    if (playerChoice.length > 0) {
+      const minLevel = calculateMinLevel(playerChoice);
+      setGameLevel(minLevel);
+    }
+  }, [playerChoice, calculateMinLevel]);
+
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
 
   function openModal(round: number) {
@@ -582,18 +629,6 @@ const Ranking = () => {
       >
       Puntuaciones 2024 en PDF
   </a>
-      <label htmlFor="gameLevel" className="block text-lg font-medium">
-        Game level:
-      </label>
-      <input
-        id="gameLevel"
-        type="number"
-        min="0"
-        max="13"
-        value={gameLevel}
-        onChange={(e) => setGameLevel(Number(e.target.value))}
-        className="mt-1 border border-gray-300 rounded px-2 py-1"
-      />
       <label htmlFor="gameDescription" className="block text-lg font-medium mt-4">
         Descripción:
       </label>
@@ -730,6 +765,21 @@ const Ranking = () => {
       >
         🎲 Randomize Order
       </button>
+      <label htmlFor="gameLevel" className="mt-2 ml-2 text-sm font-medium">
+        Game level:
+      </label>
+      <select
+        id="gameLevel"
+        value={gameLevel}
+        onChange={(e) => setGameLevel(Number(e.target.value))}
+        className="mt-2 ml-2 border border-gray-300 rounded px-2 py-1"
+      >
+        {Array.from({ length: 16 }, (_, i) => (
+          <option key={i} value={i}>
+            {i}
+          </option>
+        ))}
+      </select>
       {hasBeenRandomized && (
         <button
           type="button"
