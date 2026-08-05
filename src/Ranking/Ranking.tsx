@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Navbar from "../Navbar";
 import CreatableSelect from "react-select/creatable";
 import Modal from "react-modal";
@@ -7,6 +7,13 @@ import RankingModal from "../RankingModal";
 import { useLocalStorage } from "@uidotdev/usehooks";
 import { CopyBlock, dracula } from "react-code-blocks";
 import { StyleSheetManager } from "styled-components";
+import GuardarPartida from "./GuardarPartida";
+import { buildFilas, type CrearTorneoResultado } from "../supabase/crearTorneo";
+import {
+  createDataSource,
+  describeSource,
+  type DataSourceStatus,
+} from "../data";
 
 export interface PlayerScore {
   role: string | null;
@@ -33,18 +40,61 @@ export interface TournamentData {
   scoringSystem: string | null;
 }
 
-interface GoogleSheetCell {
-  v?: string | number | null;
-}
-
-interface GoogleSheetRow {
-  c?: GoogleSheetCell[] | null;
-}
-
 const initialPlayerOptions = players.map((player) => ({
   value: player.name,
   label: player.name,
 }));
+
+/**
+ * De dónde salen los datos: Supabase, con Google Sheets como vuelta atrás.
+ *
+ * Se crea una sola vez fuera del componente. Cada instancia cachea la descarga
+ * de la hoja y recuerda si ha tenido que recurrir a la otra fuente; crearla en
+ * cada render tiraría las dos cosas.
+ *
+ * Para forzar una fuente sin desplegar: ?datos=sheets  /  ?datos=supabase.
+ * Ver src/data/index.ts.
+ */
+const datos = createDataSource();
+
+/**
+ * Sistema de puntuación con el que se calculan estos puntos.
+ *
+ * En la base de datos identifica el reglamento vigente de cada torneo, y la
+ * validación exige que coincida con el del torneo al continuarlo. Esta pantalla
+ * es el "Generador de puntuaciones 2024", así que siempre emite 2024-01-01.
+ * Valores históricos: 2011-01-01, 2020-01-01, 2021-04-01, 2024-01-01.
+ */
+const SCORING_SYSTEM = "2024-01-01";
+
+/**
+ * Rango de niveles de partida válidos.
+ *
+ * El 0 no es un nivel: `partidas.nivel` multiplica la experiencia con la fórmula
+ * `xp_base + incremento * (nivel - 1)`, así que un 0 daría MENOS experiencia que
+ * un 1 (16,5 en vez de 20). Estaba en el desplegable y no hay nada en la base de
+ * datos que lo impida, así que se cierra aquí.
+ *
+ * Ojo: si se cambia el mínimo hay que mantener a la vez el valor inicial de
+ * `gameLevel` y el caso "sin jugadores" de `calculateMinLevel`. Un `gameLevel`
+ * fuera del rango del desplegable no mostraría ninguna opción seleccionada, el
+ * navegador pintaría la primera y se guardaría un valor distinto del que se ve.
+ */
+const NIVEL_MINIMO = 1;
+const NIVEL_MAXIMO = 15;
+
+/**
+ * Fecha de la sesión de juego, en formato ISO.
+ *
+ * toISOString() da la fecha en UTC, no en hora local: una partida cerrada a la
+ * 00:30 en Mallorca (UTC+2) queda fechada el día anterior. Para sesiones de
+ * juego nocturnas es justo lo que se quiere, así que se mantiene tal cual
+ * estaba. El mismo valor se manda a la BD, de modo que el SQL de texto y la
+ * inserción directa fechan la partida igual.
+ */
+function fechaDeHoy(): string {
+  return new Date().toISOString().split("T")[0];
+}
 
 Modal.setAppElement("#root");
 
@@ -52,190 +102,65 @@ const Ranking = () => {
   const [playerOptions, setPlayerOptions] = useState(initialPlayerOptions);
   const [monthsFilter, setMonthsFilter] = useState<number>(3);
 
-  const fetchPlayersFromSheet = useCallback(async () => {
-    setUpdateStatus('updating');
-    const sheetId = import.meta.env.VITE_GOOGLE_SHEET_ID;
-    const sheetName = import.meta.env.VITE_GOOGLE_SHEET_NAME || "Sheet1";
-    if (!sheetId) {
-      setUpdateStatus('idle');
-      return;
-    }
+  const [sourceStatus, setSourceStatus] = useState<DataSourceStatus>(() =>
+    datos.getStatus()
+  );
 
-    const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${sheetName}`;
-    
+  // Repinta el indicador si hubo que recurrir a la otra fuente a media sesión.
+  useEffect(() => datos.subscribe(setSourceStatus), []);
+
+  /**
+   * Recarga jugadores, niveles y torneos de la fuente activa.
+   *
+   * Las tres consultas son independientes, así que van en paralelo. Con la hoja
+   * de Google esto eran dos descargas secuenciales del mismo fichero de 3 MB.
+   */
+  const refrescarDatos = useCallback(async () => {
+    setUpdateStatus("updating");
+
     try {
-      const response = await fetch(sheetUrl);
-      if (!response.ok) {
-        throw new Error(`Google Sheet response status ${response.status}`);
-      }
-      const text = await response.text();
+      const [actividad, niveles, torneos] = await Promise.all([
+        datos.fetchPlayerActivity(),
+        datos.fetchPlayerLevels(),
+        datos.fetchTournaments(),
+      ]);
 
-      // sheet JSON is wrapped in JS function call
-      // Evitar el flag 's' para compatibilidad de TS con target es5/es2017
-      const jsonTextMatch = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
-      if (!jsonTextMatch) {
-        throw new Error("Formato de datos de Google Sheet desconocido");
-      }
+      // Mismo criterio que con la hoja: se compara contra "hoy hace N meses"
+      // sin tocar la hora, y un jugador sin fecha entra siempre.
+      const corte = new Date();
+      corte.setMonth(corte.getMonth() - monthsFilter);
 
-      const sheetData = JSON.parse(jsonTextMatch[1]);
-      const rows = sheetData?.table?.rows || [];
-      
-      // Capturar el valor actual de monthsFilter
-      const currentMonthsFilter = monthsFilter;
-
-      const options = rows
-        .map((row: GoogleSheetRow) => {
-          const playerName = row.c?.[3]?.v?.toString().trim(); // Columna D (índice 3)
-          const fecha = row.c?.[8]?.v; // Columna I (índice 8)
-          
-          if (!playerName) return null;
-          
-          // Filtrar por fecha mayor a hace N meses
-          if (fecha) {
-            let fechaJuego: Date;
-            
-            // Manejar diferentes formatos de fecha de Google Sheets
-            if (typeof fecha === 'string' && fecha.startsWith('Date(')) {
-              // Formato: Date(2026,2,13)
-              const match = fecha.match(/Date\((\d+),(\d+),(\d+)\)/);
-              if (match) {
-                // Los meses en JavaScript son 0-11, Google Sheets usa 1-12
-                fechaJuego = new Date(parseInt(match[1]), parseInt(match[2]), parseInt(match[3]));
-              } else {
-                return null;
-              }
-            } else {
-              // Formato ISO: "2026-02-13"
-              fechaJuego = new Date(fecha);
-            }
-            
-            const filterDate = new Date();
-            filterDate.setMonth(filterDate.getMonth() - currentMonthsFilter);
-            
-            if (fechaJuego < filterDate) {
-              return null;
-            }
-          }
-          
-          return { value: playerName, label: playerName };
+      const opciones = actividad
+        .filter(({ ultimaPartida }) => {
+          if (!ultimaPartida) return true;
+          const [year, month, day] = ultimaPartida.split("-").map(Number);
+          return new Date(year, month - 1, day) >= corte;
         })
-        .filter(Boolean);
+        .map(({ nombre }) => ({ value: nombre, label: nombre }));
 
-      // Eliminar duplicados usando un Set
-      const uniqueOptions = Array.from(
-        new Map(options.map((opt: { value: string; label: string }) => [opt.value, opt])).values()
+      // Si no vuelve nadie se conserva la lista anterior, que en el primer
+      // arranque es players.json. Mejor eso que un selector vacío.
+      if (opciones.length > 0) {
+        setPlayerOptions(opciones);
+      }
+
+      setPlayerLevels(
+        new Map(niveles.map(({ nombre, nivel }) => [nombre, nivel]))
       );
+      setTournamentsData(torneos);
 
-      if (uniqueOptions.length > 0) {
-        setPlayerOptions(uniqueOptions as { value: string; label: string }[]);
-      }
-
-      // Leer niveles de jugadores desde la pestaña "Exp" (columna F, índice 5)
-      const expSheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=Exp`;
-      try {
-        const expResponse = await fetch(expSheetUrl);
-        if (expResponse.ok) {
-          const expText = await expResponse.text();
-          const expJsonTextMatch = expText.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
-          if (expJsonTextMatch) {
-            const expSheetData = JSON.parse(expJsonTextMatch[1]);
-            const expRows = expSheetData?.table?.rows || [];
-            
-            const levelsMap = new Map<string, number | null>();
-            expRows.forEach((row: GoogleSheetRow) => {
-              const playerName = row.c?.[0]?.v?.toString().trim(); // Columna A (índice 0) - nombre del jugador
-              const level = row.c?.[5]?.v; // Columna F (índice 5) - nivel
-              
-              if (playerName) {
-                levelsMap.set(playerName, level !== null && level !== undefined ? Number(level) : null);
-              }
-            });
-            
-            setPlayerLevels(levelsMap);
-          }
-        }
-      } catch (error) {
-        console.error("Error leyendo niveles desde pestaña Exp:", error);
-      }
-
-      // Obtener datos de torneos
-      const tournamentsMap = new Map<string, {
-        jugadores: Set<string>;
-        jugadoresOrdenOriginal: string[];
-        maxNumPartida: number;
-        numJugadores: number;
-        scoringSystem: string | null;
-      }>();
-      
-      rows.forEach((row: GoogleSheetRow) => {
-        const torneoId = row.c?.[1]?.v?.toString(); // Columna TorneoID (índice 1)
-        const playerName = row.c?.[3]?.v?.toString().trim(); // Columna Jugador (índice 3)
-        const numPartida = row.c?.[2]?.v; // Columna numPartida (índice 2)
-        const numJugadores = row.c?.[9]?.v; // Columna numJugadores (índice 9)
-        // Parse scoring_system - puede ser Date(YYYY,M,D) o string directo
-        let scoringSystem: string | null = null;
-        const scoringRaw = row.c?.[11]?.v;
-        if (scoringRaw) {
-          if (typeof scoringRaw === 'string' && scoringRaw.startsWith('Date(')) {
-            const match = scoringRaw.match(/Date\((\d+),(\d+),(\d+)\)/);
-            if (match) {
-              const year = match[1];
-              const month = String(parseInt(match[2]) + 1).padStart(2, '0'); // Meses 0-indexed
-              const day = String(parseInt(match[3])).padStart(2, '0');
-              scoringSystem = `${year}-${month}-${day}`;
-            }
-          } else {
-            scoringSystem = scoringRaw.toString().trim();
-          }
-        }
-        
-        if (torneoId && playerName) {
-          if (!tournamentsMap.has(torneoId)) {
-            tournamentsMap.set(torneoId, {
-              jugadores: new Set(),
-              jugadoresOrdenOriginal: [],
-              maxNumPartida: 0,
-              numJugadores: typeof numJugadores === 'number' ? numJugadores : Number(numJugadores) || 0,
-              scoringSystem: scoringSystem
-            });
-          }
-          const tournament = tournamentsMap.get(torneoId)!;
-          tournament.jugadores.add(playerName);
-          
-          // Añadir al orden original solo si no está ya en la lista (mantener primera aparición por orden de ID del sheet)
-          if (!tournament.jugadoresOrdenOriginal.includes(playerName)) {
-            tournament.jugadoresOrdenOriginal.push(playerName);
-          }
-          
-          if (numPartida && Number(numPartida) > tournament.maxNumPartida) {
-            tournament.maxNumPartida = Number(numPartida);
-          }
-        }
-      });
-
-      const tournaments: TournamentData[] = Array.from(tournamentsMap.entries()).map(([torneoId, data]) => ({
-        torneoId,
-        jugadores: Array.from(data.jugadores).sort(),
-        jugadoresOrdenOriginal: data.jugadoresOrdenOriginal,
-        maxNumPartida: data.maxNumPartida,
-        numJugadores: data.numJugadores,
-        isCompleted: data.maxNumPartida >= data.numJugadores,
-        scoringSystem: data.scoringSystem
-      }));
-
-      setTournamentsData(tournaments);
-      setUpdateStatus('done');
-      setTimeout(() => setUpdateStatus('idle'), 2000); // Reset after 2 seconds
-
+      setUpdateStatus("done");
+      setTimeout(() => setUpdateStatus("idle"), 2000);
     } catch (error) {
-      console.error("Error leyendo jugadores desde Google Sheet:", error);
-      setUpdateStatus('idle');
+      // Aquí sólo se llega si fallaron las dos fuentes.
+      console.error("No se han podido cargar los datos:", error);
+      setUpdateStatus("idle");
     }
   }, [monthsFilter]);
 
   useEffect(() => {
-    fetchPlayersFromSheet();
-  }, [fetchPlayersFromSheet]);
+    refrescarDatos();
+  }, [refrescarDatos]);
 
   const [playerChoice, setPlayerChoice] = useLocalStorage<string[]>(
     "playerChoice-v1",
@@ -251,7 +176,7 @@ const Ranking = () => {
   );
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
-  const [gameLevel, setGameLevel] = useState<number>(0);
+  const [gameLevel, setGameLevel] = useState<number>(NIVEL_MINIMO);
   const [gameDescription, setGameDescription] = useLocalStorage<string>(
     "gameDescription-v1",
     ""
@@ -269,16 +194,54 @@ const Ranking = () => {
   const [introductionOrder, setIntroductionOrder] = useState<string[]>([]);
   const [hasBeenRandomized, setHasBeenRandomized] = useState<boolean>(false);
   const [playerLevels, setPlayerLevels] = useState<Map<string, number | null>>(new Map());
+  /**
+   * Si alguien ha tocado el desplegable de nivel a mano.
+   *
+   * Existe para que el recálculo automático no le pise la elección. No se
+   * persiste a propósito: al recargar vuelve a false y el nivel se recalcula,
+   * que es justo lo que se quiere.
+   */
+  const [gameLevelElegidoAMano, setGameLevelElegidoAMano] = useState<boolean>(false);
 
-  // Función para calcular el nivel mínimo de los jugadores seleccionados
+  /**
+   * Nivel de partida que se propone: el del jugador menos veterano de la mesa.
+   *
+   * Sin nivel cuenta como nivel 1, no como "no se sabe". Son dos casos:
+   * el jugador que aún no tiene `max_nivel_jugado` (114 de 174) y el que se
+   * acaba de crear en el selector y no está en la tabla. En los dos, lo correcto
+   * es empezar por el principio, y además arrastra el mínimo hacia abajo, que es
+   * el lado seguro: una mesa se juega al nivel del que menos sabe.
+   *
+   * Descartarlos, que es lo que se hacía antes, proponía el nivel del veterano
+   * de un grupo de novatos.
+   */
   const calculateMinLevel = useCallback((players: string[]) => {
-    const levels = players
-      .map(player => playerLevels.get(player))
-      .filter((level): level is number => level !== null && level !== undefined);
-    
-    if (levels.length === 0) return 0;
+    // Sin jugadores no hay nada que calcular. Se devuelve el mínimo válido, no 0:
+    // vaciar el selector dejaba el nivel en 0, y el 0 ya no existe como opción.
+    if (players.length === 0) return NIVEL_MINIMO;
+    const levels = players.map((player) => playerLevels.get(player) ?? NIVEL_MINIMO);
     return Math.min(...levels);
   }, [playerLevels]);
+
+  /**
+   * Recalcula el nivel cuando llegan los niveles de los jugadores.
+   *
+   * Hace falta porque la selección de jugadores se restaura del navegador de
+   * forma inmediata, pero los niveles tardan lo que tarde la consulta. Sin esto,
+   * al recargar la página el nivel se quedaba en su valor inicial hasta que
+   * alguien tocaba el selector, y ese valor acabaría tal cual en la base de datos
+   * y en el `SET @nivel` del SQL que se genera.
+   *
+   * No se toca el nivel si ya lo han elegido a mano, ni antes de que lleguen los
+   * datos: con el mapa vacío, `calculateMinLevel` daría 1 para todo el mundo por
+   * la regla de "sin nivel = 1", y eso sería inventarse un dato.
+   */
+  useEffect(() => {
+    if (gameLevelElegidoAMano) return;
+    if (playerChoice.length === 0) return;
+    if (playerLevels.size === 0) return;
+    setGameLevel(calculateMinLevel(playerChoice));
+  }, [playerLevels, playerChoice, gameLevelElegidoAMano, calculateMinLevel]);
 
   // Función para verificar si los jugadores actuales ya han jugado un torneo juntos
   const checkTournamentHistory = useCallback((currentPlayers: string[]) => {
@@ -309,57 +272,18 @@ const Ranking = () => {
     }
   }, [tournamentsData]);
 
+  /**
+   * Trae las partidas ya jugadas de un torneo, para pintarlas y continuarlo.
+   *
+   * Devuelve null si no se pudo leer. La pantalla lo trata como "no hay nada
+   * que importar" y sigue funcionando en modo manual, que es el comportamiento
+   * que ya tenía.
+   */
   const fetchTournamentData = useCallback(async (torneoId: string) => {
-    const sheetId = import.meta.env.VITE_GOOGLE_SHEET_ID;
-    const sheetName = import.meta.env.VITE_GOOGLE_SHEET_NAME || "Sheet1";
-    if (!sheetId) {
-      return null;
-    }
-
-    const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${sheetName}`;
-    
     try {
-      const response = await fetch(sheetUrl);
-      if (!response.ok) {
-        throw new Error(`Google Sheet response status ${response.status}`);
-      }
-      const text = await response.text();
-
-      const jsonTextMatch = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
-      if (!jsonTextMatch) {
-        throw new Error("Formato de datos de Google Sheet desconocido");
-      }
-
-      const sheetData = JSON.parse(jsonTextMatch[1]);
-      const rows = sheetData?.table?.rows || [];
-      
-      // Filtrar filas por torneoId
-      const tournamentRows = rows.filter((row: GoogleSheetRow) => {
-        const rowTorneoId = row.c?.[1]?.v?.toString();
-        return rowTorneoId === torneoId;
-      });
-
-      // Agrupar por numPartida y mapear a jugadores
-      const tournamentData: Map<number, Map<string, { role: string; score: number; winner: boolean }>> = new Map();
-      
-      tournamentRows.forEach((row: GoogleSheetRow) => {
-        const numPartida = row.c?.[2]?.v as number;
-        const playerName = row.c?.[3]?.v?.toString().trim();
-        const role = row.c?.[4]?.v?.toString();
-        const score = row.c?.[5]?.v as number;
-        const winner = (row.c?.[6]?.v as number) === 1;
-        
-        if (numPartida && playerName && role) {
-          if (!tournamentData.has(numPartida)) {
-            tournamentData.set(numPartida, new Map());
-          }
-          tournamentData.get(numPartida)!.set(playerName, { role, score, winner });
-        }
-      });
-
-      return tournamentData;
+      return await datos.fetchTournamentRounds(torneoId);
     } catch (error) {
-      console.error("Error fetching tournament data:", error);
+      console.error("No se han podido leer las partidas del torneo:", error);
       return null;
     }
   }, []);
@@ -450,9 +374,7 @@ const Ranking = () => {
       players: string[] = playerChoice,
       description: string = gameDescription
     ) => {
-      const today = new Date();
-      const formattedDate = today.toISOString().split("T")[0];
-      const dateLine = `SET @gameDate = '${formattedDate}'`;
+      const dateLine = `SET @gameDate = '${fechaDeHoy()}'`;
 
       const levelLine = `SET @nivel = ${gameLevel}`;
       const safeDescription = description.replace(/'/g, "''");
@@ -460,18 +382,18 @@ const Ranking = () => {
       const lastTorneoIdLine = `SET @lastTorneoId = ${lastTorneoId ? lastTorneoId : 'NULL'}`;
       const isRankedLine = `SET @isRanked = ${isRanked ? 1 : 0}`;
 
-      const roundRows = playerScores
-        .map((playerScore, roundIndex) =>
-          playerScore
-            .filter((score) => score.role !== null && !score.imported) // Excluir filas importadas
-            .map(
-              (score, playerIndex) =>
-                `(@lastTorneoId, ${roundIndex + 1}, '${
-                  players[playerIndex]
-                }', '${score.role}', ${score.score}, ${score.winner ? 1 : 0})`
-            )
-        )
-        .flat();
+      // Mismas filas que se mandan a la BD: una sola implementación para los
+      // dos caminos, así el SQL de texto y la inserción directa no pueden
+      // divergir. buildFilas empareja nombre y puntuación antes de filtrar, que
+      // es lo que aquí estaba al revés: con filas importadas de un torneo
+      // continuado, el índice del array ya filtrado desplazaba los nombres.
+      const roundRows = buildFilas(playerScores, players).map(
+        (fila) =>
+          `(@lastTorneoId, ${fila.num_partida}, '${fila.jugador.replace(
+            /'/g,
+            "''"
+          )}', '${fila.rol}', ${fila.puntos}, ${fila.ganada ? 1 : 0})`
+      );
       const header = [dateLine, levelLine, descriptionLine, lastTorneoIdLine, isRankedLine].join("\n") + "\n";
       const body = roundRows.join(",\n");
       return header + body;
@@ -490,6 +412,32 @@ const Ranking = () => {
 
 
   const [rawText, setRawText] = useState<string>(getRawText(playerScores));
+
+  /**
+   * Las filas que se enviarán a la base de datos: exactamente las mismas tuplas
+   * que muestra el bloque de SQL. Memoizadas para que GuardarPartida pueda
+   * detectar por contenido si los datos han cambiado.
+   */
+  const filasParaBD = useMemo(
+    () => buildFilas(playerScores, playerChoice),
+    [playerScores, playerChoice]
+  );
+
+  /** El campo es un input de texto: sólo vale como id un entero positivo. */
+  const torneoIdParaBD = useMemo(() => {
+    const n = parseInt(lastTorneoId, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [lastTorneoId]);
+
+  const handleGuardado = useCallback(
+    (resultado: CrearTorneoResultado) => {
+      // Apuntar el torneo recién creado para que las rondas siguientes se
+      // añadan a él en lugar de abrir otro. Es lo que antes había que copiar a
+      // mano en "Continuación de torneo".
+      setLastTorneoId(String(resultado.torneo_id));
+    },
+    [setLastTorneoId]
+  );
 
   function openModal(round: number) {
     setCurrentRound(round);
@@ -661,8 +609,8 @@ const Ranking = () => {
         <button
           type="button"
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300"
-          onClick={fetchPlayersFromSheet}
-          title="Actualizar datos desde Google Sheet"
+          onClick={refrescarDatos}
+          title={`Actualizar datos desde ${describeSource(sourceStatus.active)}`}
           disabled={updateStatus === 'updating'}
         >
           🔄 Actualizar jugadores
@@ -674,6 +622,31 @@ const Ranking = () => {
           <span className="text-green-600 text-sm font-medium">✅ Done</span>
         )}
       </div>
+      {/*
+        Qué fuente está respondiendo. Discreto cuando es la esperada, y bien
+        visible cuando ha habido que recurrir a la otra: si alguien apunta unas
+        puntuaciones sobre datos que salieron de la copia en Google Sheets en
+        lugar de la base de datos, tiene que saberlo.
+      */}
+      {sourceStatus.active === sourceStatus.preferred ? (
+        <p className="mb-4 text-xs text-gray-500">
+          Datos: {describeSource(sourceStatus.active)}
+        </p>
+      ) : (
+        <p
+          className="mb-4 mx-auto max-w-2xl rounded border border-yellow-300 bg-yellow-100 p-2 text-sm text-yellow-800"
+          role="status"
+        >
+          ⚠️ {describeSource(sourceStatus.preferred)} no responde, así que estos
+          datos vienen de {describeSource(sourceStatus.active)}. Pueden estar
+          desactualizados.
+          {sourceStatus.fallbackReason && (
+            <span className="block text-xs opacity-75">
+              {sourceStatus.fallbackReason}
+            </span>
+          )}
+        </p>
+      )}
       <CreatableSelect
         isMulti
         isSearchable={true}
@@ -699,9 +672,10 @@ const Ranking = () => {
           
           setIntroductionOrder(updatedIntroductionOrder);
           
-          // Auto-seleccionar el nivel mínimo de los jugadores
-          const minLevel = calculateMinLevel(selectedValues);
-          setGameLevel(minLevel);
+          // Auto-seleccionar el nivel mínimo de los jugadores. Cambiar la mesa
+          // descarta el nivel que se hubiera puesto a mano: era para otra mesa.
+          setGameLevelElegidoAMano(false);
+          setGameLevel(calculateMinLevel(selectedValues));
           
           setPlayerScores(
             new Array<PlayerScore[]>(selectedValues.length).fill(
@@ -750,12 +724,19 @@ const Ranking = () => {
         <select
           id="gameLevel"
           value={gameLevel}
-          onChange={(e) => setGameLevel(Number(e.target.value))}
+          onChange={(e) => {
+            // Marcar la elección como manual para que el recálculo no la pise.
+            setGameLevelElegidoAMano(true);
+            setGameLevel(Number(e.target.value));
+          }}
           className="ml-2 border border-gray-300 rounded px-2 py-1"
         >
-          {Array.from({ length: 16 }, (_, i) => (
-            <option key={i} value={i}>
-              {i}
+          {Array.from(
+            { length: NIVEL_MAXIMO - NIVEL_MINIMO + 1 },
+            (_, i) => i + NIVEL_MINIMO
+          ).map((nivel) => (
+            <option key={nivel} value={nivel}>
+              {nivel}
             </option>
           ))}
         </select>
@@ -919,6 +900,17 @@ const Ranking = () => {
                 </StyleSheetManager>
               </div>
             </div>
+            <GuardarPartida
+              filas={filasParaBD}
+              jugadores={playerChoice}
+              torneoId={torneoIdParaBD}
+              descripcion={gameDescription}
+              fecha={fechaDeHoy()}
+              scoringSystem={SCORING_SYSTEM}
+              nivel={gameLevel}
+              isRanked={isRanked}
+              onGuardado={handleGuardado}
+            />
           </>
         )}
         <Modal

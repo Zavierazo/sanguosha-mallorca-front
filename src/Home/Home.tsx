@@ -40,6 +40,26 @@ const Home = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-1 gap-8">
+            {/* Card Estadísticas */}
+            <div className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden border-l-4 border-amber-500">
+              <div className="bg-gradient-to-r from-amber-500 to-amber-600 px-8 py-6">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                  🏆 Estadísticas
+                </h2>
+              </div>
+              <div className="p-8 space-y-2">
+                <LinkItem href="/estadisticas" isInternal>
+                  Clasificación de la temporada
+                </LinkItem>
+                <LinkItem href="/estadisticas/nivel-jugadores" isInternal>
+                  Nivel jugadores
+                </LinkItem>
+                <LinkItem href="/torneos" isInternal>
+                  Torneos
+                </LinkItem>
+              </div>
+            </div>
+
             {/* Card Puntuaciones */}
             <div className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden border-l-4 border-blue-500">
               <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-8 py-6">
@@ -56,23 +76,6 @@ const Home = () => {
                 </LinkItem>
                 <LinkItem href="https://www.facebook.com/media/set/?set=oa.1748090112371343&type=3">
                   Ranked Season
-                </LinkItem>
-              </div>
-            </div>
-
-            {/* Card Tableau */}
-            <div className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden border-l-4 border-purple-500">
-              <div className="bg-gradient-to-r from-purple-500 to-purple-600 px-8 py-6">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                  📈 Tableau
-                </h2>
-              </div>
-              <div className="p-8 space-y-2">
-                <LinkItem href="https://public.tableau.com/app/profile/miquel.ferrer.pons/viz/SGSstats/SGSMatchfinder">
-                  Buscador de partidas
-                </LinkItem>
-                <LinkItem href="https://public.tableau.com/app/profile/miquel.ferrer.pons/viz/SGSstats/Niveles?publish=yes">
-                  Nivel jugadores (y otras estadísticas en pestaña)
                 </LinkItem>
               </div>
             </div>
