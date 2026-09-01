@@ -13,12 +13,14 @@ const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 /**
  * ¿Está Supabase configurado en este despliegue?
  *
- * La página tiene que seguir funcionando sin él: la lectura del ranking sale de
- * la hoja de Google, y el generador de puntuaciones sabe emitir el bloque de SQL
- * para pegar a mano. Sólo las partes que hablan con la base de datos se apagan.
+ * Ya no hay lectura alternativa (la copia en la hoja de Google se retiró), así
+ * que sin esto los informes no tienen nada que enseñar y lo dicen. Lo que sí
+ * sigue funcionando es el generador de puntuaciones: se puede apuntar la partida
+ * y copiar el bloque de SQL para pegarlo a mano.
  *
  * Por eso este módulo NO puede lanzar al importarse: un throw en el import
- * tumbaría toda la aplicación, incluidas las secciones que no usan Supabase.
+ * tumbaría toda la aplicación, incluidas las partes que funcionan sin base de
+ * datos. Se comprueba esta bandera antes de llamar a getSupabase().
  */
 export const isSupabaseConfigured = Boolean(url && publishableKey);
 

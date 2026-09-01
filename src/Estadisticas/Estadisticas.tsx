@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Navbar from "../Navbar";
 import { getSupabase, isSupabaseConfigured } from "../supabase/client";
+import ErrorConexion from "../ui/ErrorConexion";
 import type { Database } from "../supabase/database.types";
 
 type Fila = Database["public"]["Functions"]["fn_estadisticas"]["Returns"][number];
@@ -124,6 +125,11 @@ const Estadisticas = () => {
   const [filas, setFilas] = useState<Fila[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * El fallo es de configuración del despliegue, no de la base de datos.
+   * Reintentar no lo arregla, así que no se ofrece el botón.
+   */
+  const [sinConfigurar, setSinConfigurar] = useState<boolean>(false);
 
   // Temporadas disponibles. Se leen una sola vez.
   useEffect(() => {
@@ -150,16 +156,13 @@ const Estadisticas = () => {
     };
   }, []);
 
-  // Esta pantalla no tiene vuelta atras a Google Sheets, a diferencia del resto
-  // de la web (ver src/data/index.ts). La hoja no lleva ni `medals` ni
-  // `losing_penalty`, asi que el Elo y la division no se pueden calcular con
-  // ella: la clasificacion sale de Supabase o no sale.
   const cargarEstadisticas = useCallback(async (anyo: number) => {
     if (!isSupabaseConfigured) {
       setCargando(false);
+      setSinConfigurar(true);
       setError(
-        "Supabase no esta configurado en este despliegue: faltan " +
-          "VITE_SUPABASE_URL o VITE_SUPABASE_PUBLISHABLE_KEY."
+        "Faltan VITE_SUPABASE_URL o VITE_SUPABASE_PUBLISHABLE_KEY en este " +
+          "despliegue."
       );
       setFilas([]);
       return;
@@ -258,13 +261,20 @@ const Estadisticas = () => {
             )}
           </div>
 
+          {/*
+            Esta pantalla no tiene forma de funcionar sin la base de datos: el
+            Elo y la división salen de `medals` y `losing_penalty`, que sólo
+            están ahí. O sale de Supabase, o no sale.
+          */}
           {error && (
-            <div
-              role="alert"
-              className="mb-6 rounded-lg border-l-4 border-red-500 bg-red-50 p-4 text-sm text-red-800"
-            >
-              No se han podido cargar las estadísticas: {error}
-            </div>
+            <ErrorConexion
+              que="la clasificación de la temporada"
+              detalle={error}
+              onReintentar={
+                sinConfigurar ? undefined : () => cargarEstadisticas(temporada)
+              }
+              reintentando={cargando}
+            />
           )}
 
           {cargando ? (

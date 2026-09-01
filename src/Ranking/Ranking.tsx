@@ -1,18 +1,25 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Navbar from "../Navbar";
 import CreatableSelect from "react-select/creatable";
 import Modal from "react-modal";
-import players from "./players.json"; // fallback
+import players from "./players.json";
 import RankingModal from "../RankingModal";
 import { useLocalStorage } from "@uidotdev/usehooks";
-import { CopyBlock, dracula } from "react-code-blocks";
-import { StyleSheetManager } from "styled-components";
 import GuardarPartida from "./GuardarPartida";
-import { buildFilas, type CrearTorneoResultado } from "../supabase/crearTorneo";
+import RawData from "./RawData";
+import ImportarRawData from "./ImportarRawData";
+import { formatRawData, type RawDataPartida } from "./formatoRawData";
 import {
-  createDataSource,
-  describeSource,
-  type DataSourceStatus,
+  buildFilas,
+  emparejarFilas,
+  type CrearTorneoResultado,
+} from "../supabase/crearTorneo";
+import ErrorConexion from "../ui/ErrorConexion";
+import {
+  datos,
+  describeError,
+  type PlayerActivity,
+  type PlayerLevel,
 } from "../data";
 
 export interface PlayerScore {
@@ -20,7 +27,13 @@ export interface PlayerScore {
   score: number;
   alive: boolean;
   winner: boolean;
-  imported?: boolean; // Marca si la fila fue importada del Google Sheet
+  /**
+   * La fila viene de un torneo ya guardado, no de esta sesión.
+   *
+   * `buildFilas` las excluye del envío, y sólo 🏆 Continue Tournament las marca.
+   * De ahí que continuar un torneo tenga que pasar por ese botón.
+   */
+  imported?: boolean;
 }
 export interface GameScore {
   winner: string | null;
@@ -40,22 +53,92 @@ export interface TournamentData {
   scoringSystem: string | null;
 }
 
-const initialPlayerOptions = players.map((player) => ({
-  value: player.name,
-  label: player.name,
-}));
+/**
+ * Semilla del selector: la lista incluida en el bundle.
+ *
+ * Es la **tercera** línea de defensa, y sólo se ve en un caso: navegador nuevo (o
+ * sin datos guardados) y base de datos que no responde. Lo normal es la lista de
+ * la base de datos, y si no responde, la de la última conexión guardada en el
+ * navegador (ver CACHE_JUGADORES).
+ *
+ * Duplica `v_jugadores` y por tanto envejece, pero desde que existe la copia del
+ * navegador eso ya no tiene consecuencias. Regenerarla, si alguna vez hace falta,
+ * con esta consulta (quien haya jugado en el último año):
+ *
+ *   select json_agg(json_build_object('name', jugador) order by jugador)
+ *   from public.v_jugadores_actividad
+ *   where ultima_partida > ((now() at time zone 'Europe/Madrid')::date
+ *                           - interval '12 months');
+ *
+ * Al 2026-09-01 son 37 nombres. La anterior llevaba tiempo desviada: le faltaban
+ * cinco jugadores activos y tenía un nombre, "Erik", que no existe en
+ * `jugadores`, o sea que ofrecía crear un jugador fantasma.
+ */
+const semillaJugadores: string[] = players.map((player) => player.name);
+
+/** Clave del navegador donde se guarda la última lista leída de la BD. */
+const CACHE_JUGADORES = "jugadoresCache-v1";
 
 /**
- * De dónde salen los datos: Supabase, con Google Sheets como vuelta atrás.
+ * La lista de jugadores tal y como vino de la base de datos, con la fecha.
  *
- * Se crea una sola vez fuera del componente. Cada instancia cachea la descarga
- * de la hoja y recuerda si ha tenido que recurrir a la otra fuente; crearla en
- * cada render tiraría las dos cosas.
+ * Se guarda la actividad completa y no sólo los nombres para que el filtro de
+ * meses siga funcionando sin conexión: filtrar necesita `ultimaPartida`.
  *
- * Para forzar una fuente sin desplegar: ?datos=sheets  /  ?datos=supabase.
- * Ver src/data/index.ts.
+ * **Sólo se guardan los jugadores.** Los niveles y los torneos no, a propósito:
+ * un nombre viejo es inofensivo (lo caza el aviso de jugadores no registrados, y
+ * en último término la clave ajena), pero un nivel viejo entraría tal cual en
+ * `partidas.nivel` y sería un dato mal guardado sin que nada chille. Cuando no
+ * hay conexión, el nivel se comprueba a mano y la pantalla lo dice.
  */
-const datos = createDataSource();
+interface CacheJugadores {
+  /** ISO del momento en que se leyó. */
+  fecha: string;
+  jugadores: PlayerActivity[];
+}
+
+/**
+ * Lee la copia guardada, o null.
+ *
+ * Defensiva de más a propósito: en modo incógnito `localStorage` puede lanzar, y
+ * un JSON de una versión anterior del formato no debe tumbar la pantalla. Ante
+ * cualquier duda se devuelve null y se cae en la semilla.
+ */
+function leerCacheJugadores(): CacheJugadores | null {
+  try {
+    const crudo = window.localStorage.getItem(CACHE_JUGADORES);
+    if (!crudo) return null;
+    const cache = JSON.parse(crudo) as CacheJugadores;
+    if (typeof cache?.fecha !== "string" || !Array.isArray(cache?.jugadores)) {
+      return null;
+    }
+    return cache.jugadores.length > 0 ? cache : null;
+  } catch {
+    return null;
+  }
+}
+
+function escribirCacheJugadores(cache: CacheJugadores): void {
+  try {
+    window.localStorage.setItem(CACHE_JUGADORES, JSON.stringify(cache));
+  } catch {
+    // Sin sitio o sin permiso: la copia dura lo que dure la pestaña. Aceptable.
+  }
+}
+
+/** Fecha de la copia en formato corto, para contarla en el aviso de error. */
+function formatearFechaCache(iso: string): string {
+  const fecha = new Date(iso);
+  return Number.isNaN(fecha.getTime())
+    ? iso
+    : fecha.toLocaleString("es-ES", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
 
 /**
  * Sistema de puntuación con el que se calculan estos puntos.
@@ -83,6 +166,15 @@ const SCORING_SYSTEM = "2024-01-01";
 const NIVEL_MINIMO = 1;
 const NIVEL_MAXIMO = 15;
 
+/** `partidas.nivel` es numeric: 9.0 debe verse "9", pero existe el nivel 6.5. */
+const formatearNivel = (nivel: number): string => String(Number(nivel));
+
+/** "Alig", "Alig y Han Jin", "Alig, Han Jin y Miquel". */
+const listarNombres = (nombres: string[]): string =>
+  nombres.length <= 1
+    ? nombres.join("")
+    : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+
 /**
  * Fecha de la sesión de juego, en formato ISO.
  *
@@ -96,24 +188,90 @@ function fechaDeHoy(): string {
   return new Date().toISOString().split("T")[0];
 }
 
+/**
+ * Qué bando ganó una ronda, deducido de los roles marcados como ganadores.
+ *
+ * `GameScore.winner` guarda el bando ("King", "Rebel", "Spy") con los nombres
+ * que usa el formulario de la ronda, mientras que las puntuaciones guardan el
+ * rol abreviado (R, L, V, A). Al ganar el rey ganan también sus leales, así que
+ * una L ganadora es una victoria del bando del rey.
+ *
+ * Se usa al importar un Raw Data: el texto trae quién ganó, no qué bando, y sin
+ * esto reabrir una ronda importada partiría del bando por defecto.
+ */
+function bandoGanador(ronda: PlayerScore[]): string | null {
+  for (const puntuacion of ronda) {
+    if (!puntuacion?.winner) continue;
+    if (puntuacion.role === "R" || puntuacion.role === "L") return "King";
+    if (puntuacion.role === "V") return "Rebel";
+    if (puntuacion.role === "A") return "Spy";
+  }
+  return null;
+}
+
 Modal.setAppElement("#root");
 
 const Ranking = () => {
-  const [playerOptions, setPlayerOptions] = useState(initialPlayerOptions);
   const [monthsFilter, setMonthsFilter] = useState<number>(3);
 
-  const [sourceStatus, setSourceStatus] = useState<DataSourceStatus>(() =>
-    datos.getStatus()
+  /**
+   * De dónde sale la lista del selector: la copia guardada, o null si no hay.
+   *
+   * Se inicializa leyendo el navegador, así que en un arranque normal el selector
+   * ya nace con la lista de la última sesión y no con la del bundle. Se actualiza
+   * en cada lectura correcta.
+   */
+  const [cacheJugadores, setCacheJugadores] = useState<CacheJugadores | null>(
+    () => leerCacheJugadores()
   );
 
-  // Repinta el indicador si hubo que recurrir a la otra fuente a media sesión.
-  useEffect(() => datos.subscribe(setSourceStatus), []);
+  /**
+   * Las opciones del selector.
+   *
+   * Derivadas, no estado: el filtro de meses se aplica aquí sobre los datos ya
+   * cargados, así que tocar el número de meses reordena la lista al instante y ya
+   * no relanza las tres consultas como antes.
+   *
+   * **La semilla no se filtra por meses.** Sus nombres no llevan fecha, y si se
+   * les pusiera la del día en que se generó el fichero irían cayendo del filtro
+   * hasta dejar el selector vacío, que es justo lo contrario de lo que hace falta
+   * cuando no hay conexión.
+   */
+  const playerOptions = useMemo(() => {
+    if (cacheJugadores === null) {
+      return semillaJugadores.map((nombre) => ({
+        value: nombre,
+        label: nombre,
+      }));
+    }
+
+    // Se compara contra "hoy hace N meses" sin tocar la hora, y un jugador sin
+    // fecha entra siempre.
+    const corte = new Date();
+    corte.setMonth(corte.getMonth() - monthsFilter);
+
+    return cacheJugadores.jugadores
+      .filter(({ ultimaPartida }) => {
+        if (!ultimaPartida) return true;
+        const [year, month, day] = ultimaPartida.split("-").map(Number);
+        return new Date(year, month - 1, day) >= corte;
+      })
+      .map(({ nombre }) => ({ value: nombre, label: nombre }));
+  }, [cacheJugadores, monthsFilter]);
 
   /**
-   * Recarga jugadores, niveles y torneos de la fuente activa.
+   * El fallo de la última lectura, o null. Es lo que dispara el aviso de error.
+   */
+  const [errorDatos, setErrorDatos] = useState<string | null>(null);
+  /**
+   * Recarga jugadores, niveles y torneos.
    *
-   * Las tres consultas son independientes, así que van en paralelo. Con la hoja
-   * de Google esto eran dos descargas secuenciales del mismo fichero de 3 MB.
+   * Las tres consultas son independientes, así que van en paralelo. Cada una
+   * reintenta por su cuenta (ver src/data/index.ts); si alguna acaba fallando,
+   * `Promise.all` rechaza y se enseña el aviso con el botón de reintentar. No se
+   * aplican resultados parciales a propósito: media pantalla con datos nuevos y
+   * media con los viejos es difícil de interpretar cuando lo que se va a hacer
+   * con ellos es guardar puntuaciones.
    */
   const refrescarDatos = useCallback(async () => {
     setUpdateStatus("updating");
@@ -125,38 +283,33 @@ const Ranking = () => {
         datos.fetchTournaments(),
       ]);
 
-      // Mismo criterio que con la hoja: se compara contra "hoy hace N meses"
-      // sin tocar la hora, y un jugador sin fecha entra siempre.
-      const corte = new Date();
-      corte.setMonth(corte.getMonth() - monthsFilter);
-
-      const opciones = actividad
-        .filter(({ ultimaPartida }) => {
-          if (!ultimaPartida) return true;
-          const [year, month, day] = ultimaPartida.split("-").map(Number);
-          return new Date(year, month - 1, day) >= corte;
-        })
-        .map(({ nombre }) => ({ value: nombre, label: nombre }));
-
-      // Si no vuelve nadie se conserva la lista anterior, que en el primer
-      // arranque es players.json. Mejor eso que un selector vacío.
-      if (opciones.length > 0) {
-        setPlayerOptions(opciones);
+      // Una respuesta vacía no pisa la copia anterior: sería cambiar una lista
+      // buena por un selector vacío. No debería pasar (hay 174 jugadores), pero
+      // el precio de la guarda es una línea.
+      if (actividad.length > 0) {
+        const cache: CacheJugadores = {
+          fecha: new Date().toISOString(),
+          jugadores: actividad,
+        };
+        escribirCacheJugadores(cache);
+        setCacheJugadores(cache);
       }
 
-      setPlayerLevels(
-        new Map(niveles.map(({ nombre, nivel }) => [nombre, nivel]))
-      );
+      setPlayerLevels(new Map(niveles.map((nivel) => [nivel.nombre, nivel])));
       setTournamentsData(torneos);
 
+      setErrorDatos(null);
       setUpdateStatus("done");
       setTimeout(() => setUpdateStatus("idle"), 2000);
     } catch (error) {
-      // Aquí sólo se llega si fallaron las dos fuentes.
       console.error("No se han podido cargar los datos:", error);
+      setErrorDatos(describeError(error));
       setUpdateStatus("idle");
     }
-  }, [monthsFilter]);
+    // Sin dependencias: `fetchPlayerActivity` no recibe el filtro de meses, que
+    // se aplica al derivar `playerOptions`. Antes `monthsFilter` estaba aquí y
+    // cada pulsación en la casilla de meses relanzaba las tres consultas.
+  }, []);
 
   useEffect(() => {
     refrescarDatos();
@@ -193,7 +346,7 @@ const Ranking = () => {
   const [originalPlayerOrder, setOriginalPlayerOrder] = useState<string[]>([]);
   const [introductionOrder, setIntroductionOrder] = useState<string[]>([]);
   const [hasBeenRandomized, setHasBeenRandomized] = useState<boolean>(false);
-  const [playerLevels, setPlayerLevels] = useState<Map<string, number | null>>(new Map());
+  const [playerLevels, setPlayerLevels] = useState<Map<string, PlayerLevel>>(new Map());
   /**
    * Si alguien ha tocado el desplegable de nivel a mano.
    *
@@ -202,6 +355,21 @@ const Ranking = () => {
    * que es justo lo que se quiere.
    */
   const [gameLevelElegidoAMano, setGameLevelElegidoAMano] = useState<boolean>(false);
+  /**
+   * La fecha que traía un Raw Data importado, o null si la partida es de hoy.
+   *
+   * Sin esto, importar el texto de la sesión de anoche la guardaría con la fecha
+   * de hoy: `fechaDeHoy()` se evalúa al pintar. La fecha decide en qué temporada
+   * cuenta la partida y alimenta el filtro de meses del informe de niveles, así
+   * que no es un detalle cosmético.
+   *
+   * No se persiste, y se descarta al cambiar la mesa, por lo mismo que
+   * `gameLevelElegidoAMano`: era la fecha de otra partida.
+   */
+  const [fechaImportada, setFechaImportada] = useState<string | null>(null);
+
+  /** La fecha de esta partida: la del texto importado, o la de hoy. */
+  const fechaPartida = fechaImportada ?? fechaDeHoy();
 
   /**
    * Nivel de partida que se propone: el del jugador menos veterano de la mesa.
@@ -219,7 +387,9 @@ const Ranking = () => {
     // Sin jugadores no hay nada que calcular. Se devuelve el mínimo válido, no 0:
     // vaciar el selector dejaba el nivel en 0, y el 0 ya no existe como opción.
     if (players.length === 0) return NIVEL_MINIMO;
-    const levels = players.map((player) => playerLevels.get(player) ?? NIVEL_MINIMO);
+    const levels = players.map(
+      (player) => playerLevels.get(player)?.nivel ?? NIVEL_MINIMO
+    );
     return Math.min(...levels);
   }, [playerLevels]);
 
@@ -242,6 +412,85 @@ const Ranking = () => {
     if (playerLevels.size === 0) return;
     setGameLevel(calculateMinLevel(playerChoice));
   }, [playerLevels, playerChoice, gameLevelElegidoAMano, calculateMinLevel]);
+
+  /**
+   * El nivel que el cálculo automático propone para esta mesa.
+   *
+   * Es lo mismo que se le pone al desplegable, pero se necesita aparte: el
+   * aviso de abajo tiene que hablar del nivel de la mesa aunque alguien haya
+   * movido el desplegable a mano.
+   */
+  const nivelMesa = useMemo(
+    () => calculateMinLevel(playerChoice),
+    [calculateMinLevel, playerChoice]
+  );
+
+  /**
+   * Aviso de "puede que esta partida haga subir de nivel". Null si no procede.
+   *
+   * El nivel que propone `calculateMinLevel` es `max_nivel_jugado`: lo que el
+   * jugador ha jugado, no lo que se ha ganado. Cuando alguien ha desbloqueado
+   * por experiencia un nivel que todavía no ha jugado, puede subir en cualquier
+   * momento y nadie sabe si es hoy, así que el número del desplegable es una
+   * conjetura y hay que preguntar. Esa condición es exactamente
+   * `nivel_desbloqueado > max_nivel_jugado`, que es el `completo` de
+   * `v_nivel_jugadores`, el 100 % verde del informe "Nivel jugadores" (ver
+   * BD/migration/pg/09_v_nivel_jugadores.sql). Comprobado contra los datos: 0
+   * discrepancias entre las dos formas de calcularlo.
+   *
+   * Tres decisiones que no son adivinables:
+   *
+   *   - Tienen que estar listos **todos** los que empatan en el mínimo, no uno.
+   *     Si B también está a nivel 7 y no ha desbloqueado el 8, la mesa se juega
+   *     a 7 y no hay nada que decidir: avisar ahí sería ruido. Y subir el nivel
+   *     ascendería a B sin haberlo ganado, porque el paso 5 de `crear_torneo`
+   *     sube `jugadores.nivel` al nivel de la partida.
+   *
+   *   - Se propone **un escalón**, no el nivel desbloqueado. Los dos números
+   *     pueden estar muy separados: hay jugadores con 9 jugado y 15
+   *     desbloqueado, y proponer 15 no tiene sentido. El desbloqueado se enseña
+   *     como dato, y el escalón se acota a él (con un nivel .5 jugado, +1 se
+   *     pasaría de largo) y a NIVEL_MAXIMO.
+   *
+   *   - `nivelDesbloqueado` undefined es "esta fuente no lo sabe" (Google
+   *     Sheets) y null es "no ha desbloqueado nada": en los dos casos no se
+   *     afirma nada. Con `nivel` null tampoco. Es la semántica de la base de
+   *     datos: `nivel_desbloqueado > max_nivel_jugado` con un NULL no es falso,
+   *     es desconocido, y `completo` sale NULL.
+   */
+  const avisoNivel = useMemo(() => {
+    if (playerChoice.length === 0 || playerLevels.size === 0) return null;
+
+    const enElMinimo = playerChoice.filter(
+      (player) => (playerLevels.get(player)?.nivel ?? NIVEL_MINIMO) === nivelMesa
+    );
+
+    const listos: { nombre: string; desbloqueado: number }[] = [];
+    for (const nombre of enElMinimo) {
+      const fila = playerLevels.get(nombre);
+      const desbloqueado = fila?.nivelDesbloqueado;
+      if (!fila || fila.nivel === null) continue;
+      if (desbloqueado === null || desbloqueado === undefined) continue;
+      if (desbloqueado > fila.nivel) listos.push({ nombre, desbloqueado });
+    }
+    if (listos.length === 0 || listos.length !== enElMinimo.length) return null;
+
+    const desbloqueado = Math.min(...listos.map((l) => l.desbloqueado));
+    const uno = listos.length === 1;
+    return {
+      jugadores: listos.map((l) => l.nombre),
+      desbloqueado,
+      siguiente: Math.min(NIVEL_MAXIMO, desbloqueado, nivelMesa + 1),
+      // La concordancia se resuelve aquí y no en el JSX: intercalar
+      // condicionales en el texto acaba comiéndose los espacios.
+      verbos: {
+        marcar: uno ? "marca" : "marcan",
+        estar: uno ? "está" : "están",
+        tener: uno ? "tiene" : "tienen",
+        subir: uno ? "sube" : "suben",
+      },
+    };
+  }, [playerChoice, playerLevels, nivelMesa]);
 
   // Función para verificar si los jugadores actuales ya han jugado un torneo juntos
   const checkTournamentHistory = useCallback((currentPlayers: string[]) => {
@@ -284,6 +533,10 @@ const Ranking = () => {
       return await datos.fetchTournamentRounds(torneoId);
     } catch (error) {
       console.error("No se han podido leer las partidas del torneo:", error);
+      // Antes esto sólo iba a la consola y el botón morado no hacía nada
+      // visible. Ahora sale el aviso: importar las rondas ya jugadas y no
+      // conseguirlo cambia lo que hay que hacer después.
+      setErrorDatos(describeError(error));
       return null;
     }
   }, []);
@@ -313,9 +566,8 @@ const Ranking = () => {
     
     setPlayerChoice(tournamentOrder);
     setPlayerScores(newPlayerScores);
-    setRawText(getRawText(newPlayerScores, tournamentOrder));
 
-    // Importar datos del torneo desde Google Sheet
+    // Importar las rondas ya jugadas del torneo
     fetchTournamentData(activeTournament.torneoId.toString()).then(tournamentData => {
       if (tournamentData && tournamentData.size > 0) {
         // Crear matriz de puntuaciones para los jugadores actuales
@@ -334,7 +586,7 @@ const Ranking = () => {
                   score: playerData.score,
                   alive: true, // Por defecto, asumimos que están vivos
                   winner: playerData.winner,
-                  imported: true // Marcar como importado del Google Sheet
+                  imported: true // Ya está en la base de datos: no reenviarla
                 };
               }
               return {
@@ -362,72 +614,162 @@ const Ranking = () => {
         if (importedScores.length > 0) {
           setPlayerScores(importedScores);
           setGameScores(importedGameScores);
-          setRawText(getRawText(importedScores, tournamentOrder));
         }
       }
     });
   }
-
-  const getRawText = useCallback(
-    (
-      playerScores: PlayerScore[][],
-      players: string[] = playerChoice,
-      description: string = gameDescription
-    ) => {
-      const dateLine = `SET @gameDate = '${fechaDeHoy()}'`;
-
-      const levelLine = `SET @nivel = ${gameLevel}`;
-      const safeDescription = description.replace(/'/g, "''");
-      const descriptionLine = `SET @descripcion = '${safeDescription}'`;
-      const lastTorneoIdLine = `SET @lastTorneoId = ${lastTorneoId ? lastTorneoId : 'NULL'}`;
-      const isRankedLine = `SET @isRanked = ${isRanked ? 1 : 0}`;
-
-      // Mismas filas que se mandan a la BD: una sola implementación para los
-      // dos caminos, así el SQL de texto y la inserción directa no pueden
-      // divergir. buildFilas empareja nombre y puntuación antes de filtrar, que
-      // es lo que aquí estaba al revés: con filas importadas de un torneo
-      // continuado, el índice del array ya filtrado desplazaba los nombres.
-      const roundRows = buildFilas(playerScores, players).map(
-        (fila) =>
-          `(@lastTorneoId, ${fila.num_partida}, '${fila.jugador.replace(
-            /'/g,
-            "''"
-          )}', '${fila.rol}', ${fila.puntos}, ${fila.ganada ? 1 : 0})`
-      );
-      const header = [dateLine, levelLine, descriptionLine, lastTorneoIdLine, isRankedLine].join("\n") + "\n";
-      const body = roundRows.join(",\n");
-      return header + body;
-    },
-    [gameDescription, gameLevel, isRanked, lastTorneoId, playerChoice]
-  );
-
-  useEffect(() => {
-    setRawText(getRawText(playerScores));
-  }, [playerScores, playerChoice, gameLevel, gameDescription, lastTorneoId, isRanked, getRawText]);
 
   // Verificar historial de torneos cuando cambian los jugadores
   useEffect(() => {
     checkTournamentHistory(playerChoice);
   }, [playerChoice, checkTournamentHistory]);
 
-
-  const [rawText, setRawText] = useState<string>(getRawText(playerScores));
+  /** El campo es un input de texto: sólo vale como id un entero positivo. */
+  const torneoIdParaBD = useMemo(() => {
+    const n = parseInt(lastTorneoId, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [lastTorneoId]);
 
   /**
-   * Las filas que se enviarán a la base de datos: exactamente las mismas tuplas
-   * que muestra el bloque de SQL. Memoizadas para que GuardarPartida pueda
-   * detectar por contenido si los datos han cambiado.
+   * Las filas que se enviarán a la base de datos. Memoizadas para que
+   * GuardarPartida pueda detectar por contenido si los datos han cambiado.
    */
   const filasParaBD = useMemo(
     () => buildFilas(playerScores, playerChoice),
     [playerScores, playerChoice]
   );
 
-  /** El campo es un input de texto: sólo vale como id un entero positivo. */
-  const torneoIdParaBD = useMemo(() => {
-    const n = parseInt(lastTorneoId, 10);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }, [lastTorneoId]);
+  /**
+   * La partida en el formato que se comparte. Ver ./formatoRawData.ts.
+   *
+   * Las filas salen de `emparejarFilas`, de donde salen también las de
+   * `filasParaBD`: el texto describe exactamente lo que se insertaría, y por eso
+   * un organizador puede pegarlo y guardar sin volver a apuntar nada.
+   */
+  const rawData = useMemo<RawDataPartida>(
+    () => ({
+      fecha: fechaPartida,
+      scoringSystem: SCORING_SYSTEM,
+      torneoId: torneoIdParaBD,
+      nivel: gameLevel,
+      isRanked,
+      descripcion: gameDescription,
+      jugadores: playerChoice,
+      filas: emparejarFilas(playerScores, playerChoice).map((fila) => ({
+        numPartida: fila.num_partida,
+        jugador: fila.jugador,
+        rol: fila.rol,
+        puntos: fila.puntos,
+        gana: fila.ganada,
+        vive: fila.vive,
+      })),
+    }),
+    [
+      fechaPartida,
+      gameDescription,
+      gameLevel,
+      isRanked,
+      playerChoice,
+      playerScores,
+      torneoIdParaBD,
+    ]
+  );
+
+  /**
+   * El texto del bloque de Raw data.
+   *
+   * Es un `useMemo` y no un estado: antes era `useState` más un efecto más una
+   * llamada a `setRawText` en cada sitio que tocaba las puntuaciones, y esas
+   * llamadas tenían que pasarle a mano los valores nuevos porque el estado
+   * todavía no se había actualizado. Cualquier camino nuevo que se olvidara de
+   * llamarla dejaba el texto desfasado sin que se notara. Derivarlo hace que eso
+   * no se pueda dar.
+   */
+  const rawText = useMemo(() => formatRawData(rawData), [rawData]);
+
+  /**
+   * Carga en la pantalla una partida que llega en un Raw Data.
+   *
+   * Sustituye la mesa entera, no la fusiona: el texto trae el orden de asiento y
+   * las rondas completas, y mezclarlo con lo que hubiera en pantalla daría una
+   * partida que no es ninguna de las dos.
+   *
+   * Las filas se colocan en el índice de su `num_partida`, no una detrás de
+   * otra: si el texto sólo trae la ronda 2 (una continuación), la ronda 1 tiene
+   * que quedar vacía para que `buildFilas` vuelva a emitir `num_partida` 2.
+   */
+  const importarRawData = useCallback(
+    (partida: RawDataPartida) => {
+      const jugadores = partida.jugadores;
+      const vacia = (): PlayerScore => ({
+        role: null,
+        score: 0,
+        alive: true,
+        winner: false,
+        imported: false,
+      });
+
+      // La tabla pinta tantas rondas como jugadores; si el texto trae más (no
+      // debería), no se pierden.
+      const numRondas = partida.filas.reduce(
+        (max, fila) => Math.max(max, fila.numPartida),
+        jugadores.length
+      );
+      const scores: PlayerScore[][] = Array.from({ length: numRondas }, () =>
+        jugadores.map(vacia)
+      );
+
+      const indice = new Map(jugadores.map((nombre, i) => [nombre, i]));
+      for (const fila of partida.filas) {
+        const columna = indice.get(fila.jugador);
+        if (columna === undefined) continue;
+        scores[fila.numPartida - 1][columna] = {
+          role: fila.rol,
+          score: fila.puntos,
+          alive: fila.vive,
+          winner: fila.gana,
+          // Se envían a la base de datos: es justo lo que se viene a hacer.
+          imported: false,
+        };
+      }
+
+      // El resto de GameScore (muertes de leales, duelo final...) no viaja en el
+      // texto: son datos de entrada del cálculo, y los puntos ya están
+      // calculados. Sólo se reconstruye el bando ganador, que sí se deduce de
+      // los roles, para que reabrir una ronda parta del bando correcto.
+      const games: GameScore[] = scores.map((ronda) => ({
+        winner: bandoGanador(ronda),
+        loyalDeathOnLastRebelDeath: 0,
+        spyRebelKilled: 0,
+        spyFinalDuel: false,
+        spyFinalTrio: false,
+      }));
+
+      setPlayerChoice(jugadores);
+      setPlayerScores(scores);
+      setGameScores(games);
+      setIntroductionOrder(jugadores);
+      setOriginalPlayerOrder([]);
+      setHasBeenRandomized(false);
+      setGameDescription(partida.descripcion);
+      setIsRanked(partida.isRanked);
+      setLastTorneoId(partida.torneoId === null ? "" : String(partida.torneoId));
+      setFechaImportada(partida.fecha);
+      // El nivel del texto es el de la partida que ya se jugó, así que manda
+      // sobre el cálculo automático: sin esto, el efecto de recálculo lo
+      // pisaría en cuanto lleguen los niveles de los jugadores.
+      setGameLevelElegidoAMano(true);
+      setGameLevel(partida.nivel);
+    },
+    [
+      setGameDescription,
+      setGameScores,
+      setIsRanked,
+      setLastTorneoId,
+      setPlayerChoice,
+      setPlayerScores,
+    ]
+  );
 
   const handleGuardado = useCallback(
     (resultado: CrearTorneoResultado) => {
@@ -486,7 +828,6 @@ const Ranking = () => {
     
     setPlayerScores(newPlayerScores);
     setGameScores(newGameScores);
-    setRawText(getRawText(newPlayerScores));
     closeModal();
   }
 
@@ -508,7 +849,7 @@ const Ranking = () => {
       setHasBeenRandomized(true);
     }
     
-    // Limpiar filas importadas del Google Sheet
+    // Limpiar las filas ya guardadas del torneo
     const cleanedScores = playerScores.map(round => 
       round.map(score => ({
         ...score,
@@ -525,7 +866,6 @@ const Ranking = () => {
     
     setPlayerChoice(newPlayerChoice);
     setPlayerScores(newPlayerScores);
-    setRawText(getRawText(newPlayerScores, newPlayerChoice));
   }
 
   function handleRestoreOriginalOrder() {
@@ -535,7 +875,7 @@ const Ranking = () => {
     const orderToRestore = filteredIntroductionOrder.length > 0 ? filteredIntroductionOrder : originalPlayerOrder;
     if (orderToRestore.length === 0) return;
     
-    // Limpiar filas importadas del Google Sheet
+    // Limpiar las filas ya guardadas del torneo
     const cleanedScores = playerScores.map(round => 
       round.map(score => ({
         ...score,
@@ -554,13 +894,12 @@ const Ranking = () => {
     
     setPlayerChoice(orderToRestore);
     setPlayerScores(newPlayerScores);
-    setRawText(getRawText(newPlayerScores, orderToRestore));
   }
 
   return (
     <div className="Ranking-component">
       <Navbar />
-      <h1 className="text-3xl font-bold underline m-6">Generador de puntuaciones 2024</h1>
+      <h1 className="text-3xl font-bold underline m-6">Generador de puntuaciones 2024-2026</h1>
       <div className="mb-4">
       <a
         href="/Puntuaciones_2024_v2.pdf"
@@ -610,7 +949,7 @@ const Ranking = () => {
           type="button"
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300"
           onClick={refrescarDatos}
-          title={`Actualizar datos desde ${describeSource(sourceStatus.active)}`}
+          title="Volver a leer jugadores, niveles y torneos de la base de datos"
           disabled={updateStatus === 'updating'}
         >
           🔄 Actualizar jugadores
@@ -623,36 +962,83 @@ const Ranking = () => {
         )}
       </div>
       {/*
-        Qué fuente está respondiendo. Discreto cuando es la esperada, y bien
-        visible cuando ha habido que recurrir a la otra: si alguien apunta unas
-        puntuaciones sobre datos que salieron de la copia en Google Sheets en
-        lugar de la base de datos, tiene que saberlo.
+        La base de datos no responde.
+
+        Se enumera qué deja de funcionar en lugar de dejarlo en "ha habido un
+        error", porque esta pantalla sigue siendo usable sin base de datos y lo
+        que no hay que hacer es guardar a ciegas: sin niveles el desplegable no
+        se autocalcula, y sin torneos no hay comprobación de mesa repetida ni
+        botón para continuar. La salida es la de siempre, el bloque de SQL.
       */}
-      {sourceStatus.active === sourceStatus.preferred ? (
-        <p className="mb-4 text-xs text-gray-500">
-          Datos: {describeSource(sourceStatus.active)}
-        </p>
-      ) : (
-        <p
-          className="mb-4 mx-auto max-w-2xl rounded border border-yellow-300 bg-yellow-100 p-2 text-sm text-yellow-800"
-          role="status"
-        >
-          ⚠️ {describeSource(sourceStatus.preferred)} no responde, así que estos
-          datos vienen de {describeSource(sourceStatus.active)}. Pueden estar
-          desactualizados.
-          {sourceStatus.fallbackReason && (
-            <span className="block text-xs opacity-75">
-              {sourceStatus.fallbackReason}
-            </span>
-          )}
-        </p>
+      {errorDatos !== null && (
+        <div className="mx-auto max-w-2xl">
+          <ErrorConexion
+            que="los jugadores, los niveles y los torneos"
+            detalle={errorDatos}
+            onReintentar={refrescarDatos}
+            reintentando={updateStatus === 'updating'}
+          >
+            <p>
+              Puedes seguir apuntando la partida y copiar el bloque de SQL del
+              final, pero <strong>no</strong> se podrá guardar en la base de datos
+              hasta que vuelva.
+            </p>
+            <ul className="mt-1 list-disc pl-5">
+              <li>
+                {cacheJugadores === null ? (
+                  <>
+                    La lista de jugadores es la que viene incluida en la web, y no
+                    se ha llegado a leer ninguna de la base de datos en este
+                    navegador: puede estar desfasada.
+                  </>
+                ) : (
+                  <>
+                    La lista de jugadores es la de la última conexión, del{" "}
+                    {formatearFechaCache(cacheJugadores.fecha)}. Si alguien ha
+                    debutado después, no saldrá.
+                  </>
+                )}
+              </li>
+              <li>
+                El nivel de la partida no se autocalcula:{" "}
+                <strong>compruébalo a mano</strong> en el desplegable.
+              </li>
+              <li>
+                No se avisa si esta mesa ya jugó un torneo junta, y no se puede
+                continuar un torneo existente.
+              </li>
+            </ul>
+          </ErrorConexion>
+        </div>
       )}
+      {/*
+        Importar un Raw Data va aquí, antes del selector, porque cargar
+        reconstruye la mesa desde cero: el orden de la pantalla es el orden en
+        que se hacen las cosas.
+      */}
+      <ImportarRawData
+        sistemaEsperado={SCORING_SYSTEM}
+        nivelMinimo={NIVEL_MINIMO}
+        nivelMaximo={NIVEL_MAXIMO}
+        hayDatos={filasParaBD.length > 0}
+        onImportar={importarRawData}
+      />
       <CreatableSelect
         isMulti
         isSearchable={true}
         isOptionDisabled={() => playerChoice.length >= 10}
         options={playerOptions}
-        defaultValue={playerChoice.map((player) => ({
+        /*
+          Controlado (`value`) y no `defaultValue`.
+
+          `defaultValue` sólo se lee al montar, así que el selector no reflejaba
+          los cambios de `playerChoice` hechos desde el código: continuar un
+          torneo reordenaba la mesa y las etiquetas seguían en el orden viejo. Con
+          la importación de Raw Data eso pasa de ser un detalle a un problema:
+          cargar una partida cambia los jugadores enteros y el selector se
+          quedaría enseñando los anteriores.
+        */
+        value={playerChoice.map((player) => ({
           value: player,
           label: player,
         }))}
@@ -673,9 +1059,11 @@ const Ranking = () => {
           setIntroductionOrder(updatedIntroductionOrder);
           
           // Auto-seleccionar el nivel mínimo de los jugadores. Cambiar la mesa
-          // descarta el nivel que se hubiera puesto a mano: era para otra mesa.
+          // descarta el nivel que se hubiera puesto a mano, y la fecha que
+          // trajera un Raw Data importado: eran de otra partida.
           setGameLevelElegidoAMano(false);
           setGameLevel(calculateMinLevel(selectedValues));
+          setFechaImportada(null);
           
           setPlayerScores(
             new Array<PlayerScore[]>(selectedValues.length).fill(
@@ -697,7 +1085,6 @@ const Ranking = () => {
               spyFinalTrio: false,
             })
           );
-          setRawText("");
           // Resetear estados de randomización cuando cambian los jugadores
           setOriginalPlayerOrder([]);
           setIntroductionOrder([]);
@@ -753,6 +1140,33 @@ const Ranking = () => {
           className="ml-2 border border-gray-300 rounded px-2 py-1"
         />
       </div>
+      {/*
+        Aviso de "puede que hoy suba de nivel".
+
+        Sólo informa: el desplegable sigue siendo la única fuente de
+        `partidas.nivel`, así que quien decide es la persona. Desaparece en
+        cuanto el desplegable llega al nivel siguiente, que es la forma de
+        contestar "sí, hoy sube"; contestar "no" es dejarlo como está, y eso no
+        se puede distinguir de no haberlo leído, así que el aviso se queda.
+
+        role="status" y no "alert": no es un error, y el texto lleva el aviso
+        escrito, no sólo el color de fondo.
+      */}
+      {avisoNivel !== null && gameLevel < avisoNivel.siguiente && (
+        <p
+          role="status"
+          className="mt-2 mx-auto max-w-2xl rounded border border-yellow-300 bg-yellow-100 p-2 text-sm text-yellow-800"
+        >
+          ⚠️ {listarNombres(avisoNivel.jugadores)} {avisoNivel.verbos.marcar} el
+          nivel de la mesa ({formatearNivel(nivelMesa)}) y {avisoNivel.verbos.estar}{" "}
+          al 100 % de experiencia: {avisoNivel.verbos.tener} desbloqueado al menos
+          el nivel {formatearNivel(avisoNivel.desbloqueado)} sin haberlo jugado.
+          Comprueba
+          si esta partida es de nivel {formatearNivel(nivelMesa)} o si en ella{" "}
+          {avisoNivel.verbos.subir} a {formatearNivel(avisoNivel.siguiente)}, y
+          ajusta el desplegable.
+        </p>
+      )}
       <button
         type="button"
         className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:ring-4 focus:outline-none focus:ring-green-300"
@@ -886,31 +1300,19 @@ const Ranking = () => {
                 </tr>
               </tbody>
             </table>
-            <div className="mt-5">
-              <h3>Raw data</h3>
-              <div className="text-sm text-gray-500 text-start">
-                <StyleSheetManager shouldForwardProp={(prop) => !['codeBlock', 'copied'].includes(prop)}>
-                  <CopyBlock
-                    text={rawText}
-                    language={"SQL"}
-                    showLineNumbers={true}
-                    theme={dracula}
-                    codeBlock={false}
-                  />
-                </StyleSheetManager>
-              </div>
-            </div>
             <GuardarPartida
               filas={filasParaBD}
               jugadores={playerChoice}
               torneoId={torneoIdParaBD}
               descripcion={gameDescription}
-              fecha={fechaDeHoy()}
+              /* La del Raw Data importado si hay uno; si no, la de hoy. */
+              fecha={fechaPartida}
               scoringSystem={SCORING_SYSTEM}
               nivel={gameLevel}
               isRanked={isRanked}
               onGuardado={handleGuardado}
             />
+            <RawData texto={rawText} vacio={filasParaBD.length === 0} />
           </>
         )}
         <Modal
@@ -930,14 +1332,6 @@ const Ranking = () => {
       </div>
     </div>
   );
-};
-
-Ranking.propTypes = {
-  // bla: PropTypes.string,
-};
-
-Ranking.defaultProps = {
-  // bla: 'test',
 };
 
 export default Ranking;

@@ -1,211 +1,121 @@
 /**
- * Elección de la fuente de datos y vuelta atrás automática.
+ * Acceso de lectura a los datos: Supabase y nada más.
  *
- * Se puede revertir a Google Sheets de tres formas, de la más rápida a la más
- * permanente:
+ * Aquí vivía la conmutación entre Supabase y una copia de los datos en una hoja
+ * de Google, con vuelta atrás automática. Se ha retirado: la hoja llevaba tiempo
+ * sin actualizarse y servir datos viejos sin que se note es peor que fallar a la
+ * vista. Sobre todo en esta web, donde con esos datos se apuntan puntuaciones.
  *
- *   1. Automática. Si la fuente activa falla, se reintenta con la otra y la web
- *      sigue funcionando. Es la única que actúa sin que nadie esté delante, y
- *      por eso es la que de verdad protege.
+ * Lo que la sustituye:
  *
- *   2. Añadiendo `?datos=sheets` a la URL. Queda recordado en el navegador para
- *      las visitas siguientes. Sirve para forzar una fuente sin desplegar nada,
- *      que es lo que hace falta a las 2 de la mañana. `?datos=auto` lo olvida.
+ *   1. Un reintento automático de cada lectura, para lo que la biblioteca no
+ *      reintenta ella sola (ver abajo).
  *
- *   3. Cambiando `VITE_DATA_SOURCE` en el .env y desplegando. Es el valor por
- *      defecto para todo el mundo.
+ *   2. Si aun así no hay datos, el error se propaga y la pantalla lo cuenta y
+ *      ofrece reintentar. Reintentar así, y no recargando la página, es
+ *      deliberado: recargar tiraría lo que no está en localStorage (el orden de
+ *      introducción de los jugadores, y con él "Restore Original Order", y el
+ *      nivel puesto a mano) y volvería a descargar el bundle justo cuando la red
+ *      es el problema.
  *
- * Por qué hacen falta la 1 y la 2: Vite incrusta las variables `VITE_` en el
- * bundle en tiempo de compilación, así que la opción 3 sola obliga a un
- * despliegue para cambiar de fuente. Eso no es un plan de contingencia.
+ * El tope de tiempo por operación está en ./supabaseSource.ts, porque hace falta
+ * la señal de aborto de cada consulta.
  */
 
-import { createSheetsSource } from "./sheetsSource";
-import { createSupabaseSource } from "./supabaseSource";
-import type { DataSource, DataSourceId } from "./types";
+import { createSupabaseSource, TimeoutLecturaError } from "./supabaseSource";
+import type { DataSource } from "./types";
 
 export * from "./types";
 
-const STORAGE_KEY = "dataSource-v1";
-const QUERY_PARAM = "datos";
+/**
+ * Intentos por operación y espera antes del reintento.
+ *
+ * Dos intentos, no más, y esto es importante: **postgrest-js ya reintenta por su
+ * cuenta** (2.112.0 lo hace hasta tres veces, con su propia espera creciente y
+ * respetando `Retry-After`), pero sólo para errores de red y para los HTTP 503 y
+ * 520. Encadenar aquí tres intentos más daría hasta nueve peticiones para un
+ * corte de red, que es tiempo perdido delante de una pantalla parada.
+ *
+ * Este reintento existe para lo que la biblioteca deja pasar:
+ *
+ *   - El HTTP 500 con código 57014, que es el `statement_timeout` de 3 segundos
+ *     del rol `anon`. No es un 503, así que no se reintenta abajo, y sí suele
+ *     salir bien a la segunda cuando la caché del plan ya está caliente.
+ *   - Un error de PostgREST cualquiera que resulte pasajero.
+ *
+ * Lo que NO se reintenta es el tope de tiempo: si la base de datos no ha dicho
+ * nada en diez segundos, esperar otros diez sólo retrasa el aviso.
+ */
+const ESPERA_MS = 600;
+const INTENTOS = 2;
 
-const FACTORIES: Record<DataSourceId, () => DataSource> = {
-  sheets: () => createSheetsSource(),
-  supabase: () => createSupabaseSource(),
-};
-
-function other(id: DataSourceId): DataSourceId {
-  return id === "supabase" ? "sheets" : "supabase";
-}
-
-function isDataSourceId(value: unknown): value is DataSourceId {
-  return value === "sheets" || value === "supabase";
-}
-
-/** Lectura y escritura defensivas: en modo incógnito localStorage puede lanzar. */
-function readStored(): DataSourceId | null {
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    return isDataSourceId(stored) ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStored(id: DataSourceId | null): void {
-  try {
-    if (id === null) window.localStorage.removeItem(STORAGE_KEY);
-    else window.localStorage.setItem(STORAGE_KEY, id);
-  } catch {
-    // Sin persistencia la elección dura lo que dure la pestaña. Aceptable.
-  }
-}
+const esperar = (ms: number) => new Promise((listo) => setTimeout(listo, ms));
 
 /**
- * Fuente preferida, resolviendo URL -> navegador -> .env -> Supabase.
+ * La instancia se crea tarde y se memoriza.
  *
- * El parámetro de URL se persiste como efecto secundario para que la elección
- * sobreviva a la navegación interna, que es lo que se espera al pegar un enlace.
+ * Tarde porque el constructor lanza si faltan las variables de entorno, y ese
+ * fallo tiene que llegar a la pantalla como cualquier otro en lugar de tumbar el
+ * módulo al importarse.
  */
-export function resolvePreferredSource(): DataSourceId {
-  if (typeof window !== "undefined") {
-    const requested = new URLSearchParams(window.location.search).get(QUERY_PARAM);
-    if (requested === "auto") {
-      writeStored(null);
-    } else if (isDataSourceId(requested)) {
-      writeStored(requested);
-      return requested;
-    }
+let instancia: DataSource | null = null;
 
-    const stored = readStored();
-    if (stored) return stored;
-  }
-
-  const configured = import.meta.env.VITE_DATA_SOURCE;
-  return isDataSourceId(configured) ? configured : "supabase";
+function fuente(): DataSource {
+  instancia ??= createSupabaseSource();
+  return instancia;
 }
 
-/** Qué le ha pasado a la fuente de datos, para poder contarlo en la interfaz. */
-export interface DataSourceStatus {
-  /** La que se pidió. */
-  preferred: DataSourceId;
-  /** La que respondió de verdad. Distinta de `preferred` si hubo que recurrir. */
-  active: DataSourceId;
-  /** El error que forzó el cambio, si lo hubo. */
-  fallbackReason: string | null;
-}
+async function leer<T>(
+  operacion: string,
+  llamada: (source: DataSource) => Promise<T>
+): Promise<T> {
+  // Fuera del bucle: si falta la configuración no hay nada que reintentar, y el
+  // mensaje ("faltan VITE_SUPABASE_*") no es el de una base de datos caída.
+  const source = fuente();
 
-export interface ResilientDataSource extends DataSource {
-  getStatus(): DataSourceStatus;
-  /** Se avisa cuando el estado cambia, para repintar el indicador. */
-  subscribe(listener: (status: DataSourceStatus) => void): () => void;
-}
-
-/**
- * Construye la fuente preferida envuelta en una vuelta atrás a la otra.
- *
- * Cada método se intenta con la fuente activa; si lanza, se intenta con la
- * alternativa y, si esa responde, se queda como activa. No se vuelve a la
- * preferida por sí solo: un ir y venir entre fuentes daría resultados
- * inconsistentes entre consultas de la misma pantalla. Para volver, recargar.
- */
-export function createDataSource(
-  preferred: DataSourceId = resolvePreferredSource()
-): ResilientDataSource {
-  const status: DataSourceStatus = {
-    preferred,
-    active: preferred,
-    fallbackReason: null,
-  };
-
-  const listeners = new Set<(status: DataSourceStatus) => void>();
-  const instances = new Map<DataSourceId, DataSource>();
-
-  function notify(): void {
-    const snapshot = { ...status };
-    listeners.forEach((listener) => listener(snapshot));
-  }
-
-  /**
-   * Las instancias se crean tarde y se memorizan. Tarde porque el constructor
-   * de la de Supabase lanza si faltan las variables de entorno, y ese fallo
-   * tiene que poder tratarse como cualquier otro y disparar la vuelta atrás.
-   */
-  function instance(id: DataSourceId): DataSource {
-    let existing = instances.get(id);
-    if (!existing) {
-      existing = FACTORIES[id]();
-      instances.set(id, existing);
-    }
-    return existing;
-  }
-
-  async function run<T>(
-    operation: string,
-    call: (source: DataSource) => Promise<T>
-  ): Promise<T> {
+  let ultimo: unknown;
+  for (let intento = 1; intento <= INTENTOS; intento++) {
     try {
-      return await call(instance(status.active));
-    } catch (primaryError) {
-      const alternative = other(status.active);
-      const reason =
-        primaryError instanceof Error ? primaryError.message : String(primaryError);
-
-      console.error(
-        `[datos] "${operation}" ha fallado con ${status.active}. ` +
-          `Probando con ${alternative}.`,
-        primaryError
+      return await llamada(source);
+    } catch (error) {
+      ultimo = error;
+      if (intento === INTENTOS || error instanceof TimeoutLecturaError) break;
+      console.warn(
+        `[datos] "${operacion}" ha fallado (intento ${intento} de ${INTENTOS}). ` +
+          `Reintentando en ${ESPERA_MS} ms.`,
+        error
       );
-
-      let result: T;
-      try {
-        result = await call(instance(alternative));
-      } catch (alternativeError) {
-        // Las dos fuentes caídas. Se propaga el error original, que es el de la
-        // fuente que se quería usar y el que hay que ir a mirar.
-        console.error(
-          `[datos] ${alternative} también ha fallado. No hay de dónde leer.`,
-          alternativeError
-        );
-        throw primaryError;
-      }
-
-      status.active = alternative;
-      status.fallbackReason = reason;
-      notify();
-      return result;
+      await esperar(ESPERA_MS);
     }
   }
 
-  return {
-    get id() {
-      return status.active;
-    },
-
-    getStatus: () => ({ ...status }),
-
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-
-    fetchPlayerActivity: () =>
-      run("fetchPlayerActivity", (source) => source.fetchPlayerActivity()),
-
-    fetchPlayerLevels: () =>
-      run("fetchPlayerLevels", (source) => source.fetchPlayerLevels()),
-
-    fetchTournaments: () =>
-      run("fetchTournaments", (source) => source.fetchTournaments()),
-
-    fetchTournamentRounds: (torneoId) =>
-      run("fetchTournamentRounds", (source) =>
-        source.fetchTournamentRounds(torneoId)
-      ),
-  };
+  console.error(`[datos] "${operacion}" no ha podido leerse.`, ultimo);
+  throw ultimo;
 }
 
-/** Etiqueta para mostrar en la interfaz. */
-export function describeSource(id: DataSourceId): string {
-  return id === "supabase" ? "Supabase" : "Google Sheets";
+/** Mensaje legible de un fallo de lectura, para enseñarlo como detalle. */
+export function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * La fuente de datos de la web. Una sola instancia, con reintentos.
+ *
+ * No es un objeto con estado: no hay nada que consultar sobre "qué fuente está
+ * respondiendo" porque sólo hay una. Cada pantalla gestiona su propio error.
+ */
+export const datos: DataSource = {
+  fetchPlayerActivity: () =>
+    leer("fetchPlayerActivity", (source) => source.fetchPlayerActivity()),
+
+  fetchPlayerLevels: () =>
+    leer("fetchPlayerLevels", (source) => source.fetchPlayerLevels()),
+
+  fetchTournaments: () =>
+    leer("fetchTournaments", (source) => source.fetchTournaments()),
+
+  fetchTournamentRounds: (torneoId) =>
+    leer("fetchTournamentRounds", (source) =>
+      source.fetchTournamentRounds(torneoId)
+    ),
+};

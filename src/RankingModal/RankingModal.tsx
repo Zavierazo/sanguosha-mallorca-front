@@ -4,7 +4,6 @@ import {
   materialCells,
 } from "@jsonforms/material-renderers";
 import { JsonForms } from "@jsonforms/react";
-import PropTypes from "prop-types";
 import { JsonSchema } from "@jsonforms/core";
 import { pointByNumberPlayers, PointsData, RoleConfig } from "./config";
 import { ErrorObject } from "ajv";
@@ -443,16 +442,6 @@ const RankingModal = ({
       </div>
     </div>
   );
-};
-
-RankingModal.propTypes = {
-  players: PropTypes.array,
-  currentRound: PropTypes.number,
-};
-
-RankingModal.defaultProps = {
-  players: [],
-  currentRound: 0,
 };
 
 export default RankingModal;

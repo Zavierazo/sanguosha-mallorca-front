@@ -19,12 +19,4 @@ const Navbar = () => {
   )
 }
 
-Navbar.propTypes = {
-  // bla: PropTypes.string,
-};
-
-Navbar.defaultProps = {
-  // bla: 'test',
-};
-
 export default Navbar;

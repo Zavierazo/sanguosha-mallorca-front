@@ -64,18 +64,15 @@ const Home = () => {
             <div className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden border-l-4 border-blue-500">
               <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-8 py-6">
                 <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                  📊 Puntuaciones
+                  📊 Generadores de Puntuaciones
                 </h2>
               </div>
               <div className="p-8 space-y-2">
                 <LinkItem href="https://sanguosha.es/alvaro/ranking">
-                  Generador de puntuaciones 2021
+                  2021 - 2023
                 </LinkItem>
                 <LinkItem href="/ranking" isInternal>
-                  Generador de puntuaciones 2024
-                </LinkItem>
-                <LinkItem href="https://www.facebook.com/media/set/?set=oa.1748090112371343&type=3">
-                  Ranked Season
+                  2024 - 2026
                 </LinkItem>
               </div>
             </div>
@@ -92,7 +89,7 @@ const Home = () => {
                   Explicación del juego y escalado de complejidad
                 </LinkItem>
                 <LinkItem href="/faq.pdf">
-                  Reglas
+                  FAQ
                 </LinkItem>
               </div>
             </div>

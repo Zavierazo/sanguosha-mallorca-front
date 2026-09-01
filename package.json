@@ -5,60 +5,33 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@jsonforms/core": "^3.7.0",
-    "@jsonforms/material-renderers": "^3.7.0",
-    "@jsonforms/react": "^3.7.0",
-    "@mui/icons-material": "^7.3.9",
-    "@mui/material": "^7.3.9",
-    "@mui/x-date-pickers": "^8.27.2",
-    "@react-oauth/google": "^0.13.4",
-    "@supabase/supabase-js": "^2.112.0",
-    "@tailwindcss/postcss": "^4.2.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/jest": "^30.0.0",
-    "@types/node": "^25.5.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+    "@jsonforms/core": "^3.8.0",
+    "@jsonforms/material-renderers": "^3.8.0",
+    "@jsonforms/react": "^3.8.0",
+    "@mui/icons-material": "^7.3.11",
+    "@mui/material": "^7.3.11",
+    "@mui/x-date-pickers": "^8.29.3",
+    "@supabase/supabase-js": "^2.112.4",
     "@uidotdev/usehooks": "^2.4.1",
     "ajv": "^8.20.0",
-    "dayjs": "^1.11.20",
-    "prop-types": "^15.8.1",
+    "dayjs": "^1.11.23",
     "react": "^19.2.4",
-    "react-code-blocks": "^0.1.6",
     "react-dom": "^19.2.4",
     "react-modal": "^3.16.3",
-    "react-router-dom": "^7.13.1",
+    "react-router-dom": "^7.18.3",
     "react-select": "^5.10.2",
-    "styled-components": "^6.5.0",
-    "typescript": "^5.9.3",
     "web-vitals": "^5.1.0"
   },
   "scripts": {
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "jest",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "wrangler:deploy": "wrangler deploy",
     "wrangler:dev": "wrangler dev",
     "wrangler:start": "wrangler dev"
-  },
-  "jest": {
-    "testEnvironment": "jsdom",
-    "setupFilesAfterEnv": [
-      "<rootDir>/src/setupTests.ts"
-    ],
-    "moduleNameMapper": {
-      "\\.(css|less|scss|sass)$": "identity-obj-proxy"
-    }
-  },
-  "overrides": {
-    "glob": "^13.0.0",
-    "whatwg-encoding": "npm:@exodus/bytes",
-    "inflight": "npm:lru-cache",
-    "prismjs": "^1.30.0"
   },
   "browserslist": {
     "production": [
@@ -73,17 +46,20 @@
     ]
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.5",
     "@types/react-modal": "^3.16.3",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "globals": "^17.4.0",
-    "identity-obj-proxy": "^3.0.0",
-    "jest": "^30.3.0",
-    "jest-environment-jsdom": "^30.3.0",
     "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.57.1",
     "vite": "^8.0.0",
+    "vitest": "^4.1.11",
     "wrangler": "^4.74.0"
   }
 }

@@ -1,21 +1,18 @@
 /**
- * Contrato de lectura de datos, independiente de dónde vengan.
+ * Contrato de lectura de datos.
  *
  * La web nació leyendo una hoja de Google. La hoja no era la fuente de la
  * verdad: era una copia periódica de la base de datos, necesaria sólo porque el
- * servidor de Azure estaba apagado la mayor parte del tiempo. Con los datos ya
- * en Supabase la copia deja de tener sentido, pero apagar la hoja de golpe
- * dejaría la web sin red de seguridad.
+ * servidor de Azure estaba apagado la mayor parte del tiempo. Con los datos en
+ * Supabase la copia dejó de tener sentido y se retiró: llevaba tiempo sin
+ * actualizarse y una vuelta atrás a datos viejos es peor que un error honesto.
+ * Si Supabase no responde, la web lo dice y ofrece reintentar. Ver ./index.ts.
  *
- * De ahí este módulo: dos implementaciones del mismo contrato, una eligible en
- * caliente y con vuelta atrás automática. Ver ./index.ts.
- *
- * Los tipos describen lo que la web necesita, no lo que cada fuente ofrece. Es
- * lo que permite que la implementación de Supabase agregue en el servidor y la
- * de Google Sheets lo haga en el navegador, sin que Ranking.tsx note nada.
+ * Queda el contrato, ya sin segunda implementación, porque sigue describiendo lo
+ * que la web necesita en sus propios términos y no en los de la base de datos:
+ * es lo que mantiene los detalles de PostgREST (paginación, nombres de columna,
+ * nulos) dentro de ./supabaseSource.ts y fuera de Ranking.tsx.
  */
-
-export type DataSourceId = "sheets" | "supabase";
 
 /** Un jugador y la última vez que jugó. Alimenta el selector de jugadores. */
 export interface PlayerActivity {
@@ -33,14 +30,23 @@ export interface PlayerActivity {
 export interface PlayerLevel {
   nombre: string;
   /**
-   * `max_nivel_jugado`: la columna F de la pestaña `Exp`, que es la que la web
-   * venía usando. Null cuando el jugador no tiene nivel asignado todavía.
-   *
-   * Con la hoja este valor llegaba como la cadena "NULL" y acababa convertido
-   * en NaN, que contaminaba el Math.min del nivel de partida y dejaba el
-   * desplegable en blanco. Aquí es null y se descarta, en las dos fuentes.
+   * `max_nivel_jugado`: el nivel más alto que el jugador ha jugado en mesa (o el
+   * asignado a mano en `jugadores.nivel`, que tiene preferencia). Es el número
+   * que propone el desplegable de nivel. Null cuando no tiene nivel todavía.
    */
   nivel: number | null;
+  /**
+   * `nivel_desbloqueado`: el nivel más alto cuyo umbral de experiencia ya ha
+   * superado el jugador, con independencia de lo que haya jugado.
+   *
+   * Sólo se usa para avisar de que un jugador está "al 100 %", que es
+   * exactamente `nivel_desbloqueado > max_nivel_jugado`, la misma condición que
+   * `v_nivel_jugadores.completo` (ver BD/migration/pg/09_v_nivel_jugadores.sql).
+   * No es `porcentaje >= 100`: ese llega a 100 por redondeo sin serlo.
+   *
+   * Null significa que no ha desbloqueado ningún nivel todavía.
+   */
+  nivelDesbloqueado: number | null;
 }
 
 /** Resumen de un torneo. La web avisa si los jugadores ya han jugado juntos. */
@@ -69,7 +75,6 @@ export interface RoundEntry {
 export type TournamentRounds = Map<number, Map<string, RoundEntry>>;
 
 export interface DataSource {
-  readonly id: DataSourceId;
   fetchPlayerActivity(): Promise<PlayerActivity[]>;
   fetchPlayerLevels(): Promise<PlayerLevel[]>;
   fetchTournaments(): Promise<TournamentSummary[]>;

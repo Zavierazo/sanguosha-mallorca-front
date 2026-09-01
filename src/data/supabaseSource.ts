@@ -13,10 +13,6 @@
  * BD\migration\pg\09_vistas_web.sql). Aun así se pagina, porque 934 torneos
  * crecen con cada partida y algún día pasarán de 1000. El día que pase, esto ya
  * está resuelto.
- *
- * La correspondencia con la hoja de Google está verificada fila a fila con
- * huellas md5 en BD\migration\reconcile_hash.py: las dos fuentes son la misma
- * cosa salvo la grafía de 49 nombres, normalizada al migrar.
  */
 
 import { getSupabase, isSupabaseConfigured } from "../supabase/client";
@@ -33,22 +29,64 @@ import type {
 const PAGE_SIZE = 1000;
 
 /**
- * Recorre una consulta por páginas hasta agotarla.
+ * Tope de tiempo por operación, contando todas sus páginas.
  *
- * `build` recibe el rango y devuelve la consulta ya acotada. Se le pasa el
- * rango en lugar de aplicarlo aquí porque los tipos de PostgrestFilterBuilder
- * no permiten reutilizar una consulta ya construida.
+ * Existe porque supabase-js no trae ninguno: una petición que no llega a
+ * responder deja la promesa colgada para siempre, y la pantalla se queda en
+ * "Actualizando…" sin error y sin ofrecer reintentar. Eso es justo el fallo que
+ * hay que hacer visible. Diez segundos es holgado para consultas que tardan
+ * cientos de milisegundos, y corto para una sesión de juego esperando.
+ */
+const TIMEOUT_MS = 10_000;
+
+/**
+ * Se agotó el tope de tiempo.
+ *
+ * Tiene tipo propio para que la capa de reintentos pueda no reintentarlo: si la
+ * base de datos no ha contestado en diez segundos, no es un corte pasajero, y
+ * volver a esperar otros diez sólo retrasa el aviso. Ver ./index.ts.
+ */
+export class TimeoutLecturaError extends Error {
+  constructor() {
+    super(`La base de datos no ha respondido en ${TIMEOUT_MS / 1000} s.`);
+    this.name = "TimeoutLecturaError";
+  }
+}
+
+/**
+ * Recorre una consulta por páginas hasta agotarla, con tope de tiempo.
+ *
+ * `build` recibe el rango y la señal, y devuelve la consulta ya acotada. Se le
+ * pasa el rango en lugar de aplicarlo aquí porque los tipos de
+ * PostgrestFilterBuilder no permiten reutilizar una consulta ya construida.
+ *
+ * La señal es una sola para toda la operación, no una por página: lo que se
+ * quiere acotar es lo que tarda la lectura completa.
+ *
+ * Al abortar, postgrest-js no lanza: convierte el fallo en `error` (lo hace en
+ * su `then`, mientras `shouldThrowOnError` sea false, que es el defecto). Y el
+ * aborto se reconoce por `signal.aborted`, no por el nombre del error, porque
+ * `AbortSignal.timeout` produce un `TimeoutError` y no un `AbortError`: mirar el
+ * nombre fallaría en silencio.
  */
 async function fetchAllPages<T>(
-  build: (from: number, to: number) => PromiseLike<{
+  build: (
+    from: number,
+    to: number,
+    signal: AbortSignal
+  ) => PromiseLike<{
     data: T[] | null;
     error: { message: string } | null;
   }>
 ): Promise<T[]> {
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await build(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
+    const { data, error } = await build(from, from + PAGE_SIZE - 1, signal);
+    if (error) {
+      if (signal.aborted) throw new TimeoutLecturaError();
+      throw new Error(error.message);
+    }
     if (!data || data.length === 0) break;
     rows.push(...data);
     // Una página incompleta significa que era la última.
@@ -68,15 +106,14 @@ export function createSupabaseSource(): DataSource {
   const supabase = getSupabase();
 
   return {
-    id: "supabase",
-
     async fetchPlayerActivity(): Promise<PlayerActivity[]> {
-      const rows = await fetchAllPages((from, to) =>
+      const rows = await fetchAllPages((from, to, signal) =>
         supabase
           .from("v_jugadores_actividad")
           .select("jugador,ultima_partida")
           .order("jugador", { ascending: true })
           .range(from, to)
+          .abortSignal(signal)
       );
 
       return rows
@@ -91,12 +128,14 @@ export function createSupabaseSource(): DataSource {
       // v_niveles_por_jugador, no v_nivel_jugadores: la segunda es el informe
       // filtrado (sólo por debajo de nivel 11 y con partida en 3 meses) y aquí
       // hacen falta todos los jugadores.
-      const rows = await fetchAllPages((from, to) =>
+      const rows = await fetchAllPages((from, to, signal) =>
         supabase
           .from("v_niveles_por_jugador")
-          .select("jugador,max_nivel_jugado")
+          // Una sola cadena literal: ver el comentario de fetchTournaments.
+          .select("jugador,max_nivel_jugado,nivel_desbloqueado")
           .order("jugador", { ascending: true })
           .range(from, to)
+          .abortSignal(signal)
       );
 
       return rows
@@ -104,11 +143,12 @@ export function createSupabaseSource(): DataSource {
         .map((row) => ({
           nombre: row.jugador as string,
           nivel: row.max_nivel_jugado,
+          nivelDesbloqueado: row.nivel_desbloqueado,
         }));
     },
 
     async fetchTournaments(): Promise<TournamentSummary[]> {
-      const rows = await fetchAllPages((from, to) =>
+      const rows = await fetchAllPages((from, to, signal) =>
         supabase
           .from("v_torneos_resumen")
           // Una sola cadena literal a propósito: PostgREST deduce los tipos de
@@ -117,6 +157,7 @@ export function createSupabaseSource(): DataSource {
           .select("torneo_id,num_jugadores,max_num_partida,is_completed,scoring_system,jugadores_orden_original")
           .order("torneo_id", { ascending: true })
           .range(from, to)
+          .abortSignal(signal)
       );
 
       return rows
@@ -143,13 +184,14 @@ export function createSupabaseSource(): DataSource {
         throw new Error(`Identificador de torneo no numérico: "${torneoId}".`);
       }
 
-      const rows = await fetchAllPages((from, to) =>
+      const rows = await fetchAllPages((from, to, signal) =>
         supabase
           .from("v_games")
           .select("num_partida,jugador,rol,puntos,ganada")
           .eq("torneo_id", id)
           .order("id", { ascending: true })
           .range(from, to)
+          .abortSignal(signal)
       );
 
       const rondas: TournamentRounds = new Map();

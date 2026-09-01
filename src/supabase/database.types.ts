@@ -492,6 +492,19 @@ export type Database = {
           sinergia: string
         }[]
       }
+      fn_nivel_jugadores: {
+        Args: { p_meses?: number; p_nivel_maximo?: number }
+        Returns: {
+          completo: boolean
+          exp: number
+          exp_necesaria: number
+          jugador: string
+          nivel: number
+          porcentaje: number
+          rango: string
+          ultima_partida: string
+        }[]
+      }
       fn_niveles_por_jugador: {
         Args: {
           p_bono_victoria?: number

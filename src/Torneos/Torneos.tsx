@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Navbar from "../Navbar";
 import { getSupabase, isSupabaseConfigured } from "../supabase/client";
+import ErrorConexion from "../ui/ErrorConexion";
 import type { Database } from "../supabase/database.types";
 
 type Fila = Database["public"]["Functions"]["fn_torneos"]["Returns"][number];
@@ -35,6 +36,11 @@ const Torneos = () => {
   const [filas, setFilas] = useState<Fila[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * El fallo es de configuración del despliegue, no de la base de datos.
+   * Reintentar no lo arregla, así que no se ofrece el botón.
+   */
+  const [sinConfigurar, setSinConfigurar] = useState<boolean>(false);
 
   // Lista de torneos completos: da a la vez las temporadas del selector y el
   // recuento que sirve de denominador del ponderado.
@@ -66,14 +72,13 @@ const Torneos = () => {
     };
   }, []);
 
-  // Como en Estadísticas, esta pantalla no tiene vuelta atrás a la hoja de
-  // Google: la hoja no distingue qué torneos completaron la liguilla.
   const cargarClasificacion = useCallback(async (t: Temporada) => {
     if (!isSupabaseConfigured) {
       setCargando(false);
+      setSinConfigurar(true);
       setError(
-        "Supabase no está configurado en este despliegue: faltan " +
-          "VITE_SUPABASE_URL o VITE_SUPABASE_PUBLISHABLE_KEY."
+        "Faltan VITE_SUPABASE_URL o VITE_SUPABASE_PUBLISHABLE_KEY en este " +
+          "despliegue."
       );
       setFilas([]);
       return;
@@ -167,13 +172,19 @@ const Torneos = () => {
             )}
           </div>
 
+          {/*
+            Como en Estadísticas, aquí no hay nada que enseñar sin la base de
+            datos: sólo ella sabe qué torneos completaron la liguilla.
+          */}
           {error && (
-            <div
-              role="alert"
-              className="mb-6 rounded-lg border-l-4 border-red-500 bg-red-50 p-4 text-sm text-red-800"
-            >
-              No se ha podido cargar la clasificación de torneos: {error}
-            </div>
+            <ErrorConexion
+              que="la clasificación de torneos"
+              detalle={error}
+              onReintentar={
+                sinConfigurar ? undefined : () => cargarClasificacion(temporada)
+              }
+              reintentando={cargando}
+            />
           )}
 
           {cargando ? (

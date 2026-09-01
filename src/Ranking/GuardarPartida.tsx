@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../supabase/useAuth";
 import {
+  avisarPartida,
   crearTorneo,
   jugadoresDesconocidos,
   type CrearTorneoResultado,
@@ -25,6 +26,16 @@ interface GuardarPartidaProps {
 
 type Estado = "idle" | "enviando" | "ok" | "error";
 
+/**
+ * El aviso al grupo de Telegram, aparte del estado de guardado.
+ *
+ * Son dos cosas independientes y no se mezclan a propósito: cuando el aviso se
+ * intenta, la partida ya está insertada y confirmada. Si fallara y se pintase
+ * como error, daría a entender que no se ha guardado, y alguien volvería a
+ * intentarlo.
+ */
+type EstadoAviso = "idle" | "enviando" | "ok" | "error";
+
 const GuardarPartida = ({
   filas,
   jugadores,
@@ -43,6 +54,8 @@ const GuardarPartida = ({
   const [resultado, setResultado] = useState<CrearTorneoResultado | null>(null);
   const [nuevos, setNuevos] = useState<string[]>([]);
   const [confirmarNuevos, setConfirmarNuevos] = useState<boolean>(false);
+  const [aviso, setAviso] = useState<EstadoAviso>("idle");
+  const [avisoMensaje, setAvisoMensaje] = useState<string | null>(null);
 
   const rondas = Array.from(new Set(filas.map((f) => f.num_partida))).sort(
     (a, b) => a - b
@@ -100,6 +113,8 @@ const GuardarPartida = ({
     setEstado("idle");
     setMensaje(null);
     setResultado(null);
+    setAviso("idle");
+    setAvisoMensaje(null);
   }, [firma]);
 
   const handleGuardar = useCallback(async () => {
@@ -124,6 +139,18 @@ const GuardarPartida = ({
       setEstado("ok");
       setConfirmarNuevos(false);
       onGuardado(r);
+
+      // El aviso va DESPUÉS y en su propio try: lo que se guarda ya está
+      // guardado, y un fallo al avisar no puede tocar el estado de guardado.
+      setAviso("enviando");
+      setAvisoMensaje(null);
+      try {
+        await avisarPartida(r.torneo_id, r.partidas);
+        setAviso("ok");
+      } catch (e: unknown) {
+        setAvisoMensaje(e instanceof Error ? e.message : String(e));
+        setAviso("error");
+      }
     } catch (e: unknown) {
       setMensaje(e instanceof Error ? e.message : String(e));
       setEstado("error");
@@ -311,6 +338,30 @@ const GuardarPartida = ({
               {resultado.jugadores_creados.length > 0 &&
                 ` Creados: ${resultado.jugadores_creados.join(", ")}.`}
             </p>
+
+            {/*
+              El aviso al grupo va dentro del recuadro verde, no en uno propio:
+              es una consecuencia de haber guardado, no otra operación. Y si
+              falla se dice en amarillo, nunca en rojo: la partida está dentro.
+            */}
+            {aviso === "enviando" && (
+              <p className="mt-1 text-gray-600">Avisando al grupo…</p>
+            )}
+            {aviso === "ok" && (
+              <p className="mt-1">📣 Avisado al grupo de Telegram.</p>
+            )}
+            {aviso === "error" && (
+              <p className="mt-1 rounded bg-yellow-100 p-2 text-yellow-900">
+                ⚠️ La partida está guardada, pero <strong>no</strong> se ha podido
+                avisar al grupo de Telegram. Cópiale el Raw Data de abajo si
+                quieres que se enteren.
+                {avisoMensaje && (
+                  <span className="mt-1 block text-xs opacity-75">
+                    Detalle: {avisoMensaje}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
         )}
 

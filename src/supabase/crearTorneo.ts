@@ -37,17 +37,32 @@ export interface CrearTorneoResultado {
 }
 
 /**
- * Convierte la matriz ronda x jugador del componente en las filas del payload.
+ * Una fila con lo que la base de datos no guarda pero la pantalla sí muestra.
+ *
+ * `vive` no existe en `puntuaciones`: quién sobrevivió sólo se usa para calcular
+ * los puntos (y ya están calculados) y para pintar el nombre en rojo. Va aparte
+ * de `FilaPuntuacion` para que no pueda colarse en el payload de crear_torneo().
+ */
+export interface FilaPuntuacionDetalle extends FilaPuntuacion {
+  vive: boolean;
+}
+
+/**
+ * Convierte la matriz ronda x jugador del componente en filas.
  *
  * El emparejamiento nombre-puntuación se hace ANTES de filtrar. Si se filtra
  * primero, el índice que llega al map es el del array ya filtrado y los nombres
- * se desplazan: en un torneo continuado, donde las filas importadas del Google
- * Sheet se descartan, los puntos acabarían asignados al jugador equivocado.
+ * se desplazan: en un torneo continuado, donde las filas ya guardadas se
+ * descartan, los puntos acabarían asignados al jugador equivocado.
+ *
+ * Es la ÚNICA implementación de ese emparejado, y de ahí salen las tres salidas
+ * de la pantalla: el envío a la base de datos, el bloque de Raw Data que se
+ * comparte y el resumen de "qué se va a guardar". Así no pueden divergir.
  */
-export function buildFilas(
+export function emparejarFilas(
   playerScores: PlayerScore[][],
   players: string[]
-): FilaPuntuacion[] {
+): FilaPuntuacionDetalle[] {
   return playerScores.flatMap((round, roundIndex) =>
     (round ?? [])
       .map((score, playerIndex) => ({ score, jugador: players[playerIndex] }))
@@ -64,7 +79,24 @@ export function buildFilas(
         rol: score.role as string,
         puntos: score.score,
         ganada: Boolean(score.winner),
+        vive: score.alive !== false,
       }))
+  );
+}
+
+/** Las mismas filas, con sólo las columnas que acepta crear_torneo(). */
+export function buildFilas(
+  playerScores: PlayerScore[][],
+  players: string[]
+): FilaPuntuacion[] {
+  return emparejarFilas(playerScores, players).map(
+    ({ num_partida, jugador, rol, puntos, ganada }) => ({
+      num_partida,
+      jugador,
+      rol,
+      puntos,
+      ganada,
+    })
   );
 }
 
@@ -107,6 +139,52 @@ export async function jugadoresDesconocidos(
   );
 
   return buscados.filter((n) => !conocidos.has(n.toLocaleLowerCase()));
+}
+
+/**
+ * Avisa al grupo de Telegram de que se acaba de guardar una partida.
+ *
+ * La llamada manda **sólo** el id del torneo y los números de partida: el texto
+ * del mensaje lo compone la Edge Function leyendo la base de datos. Si el
+ * navegador mandara el texto, quien inserta podría guardar una cosa y anunciar
+ * otra, y el aviso dejaría de servir para lo que existe.
+ *
+ * El token del bot vive en los secretos de Edge Functions, nunca aquí: todo lo
+ * que empieza por `VITE_` acaba en el bundle, y el bundle está en un repositorio
+ * público.
+ *
+ * Lanza si no se ha podido avisar. Quien llama tiene que tratarlo como un aviso,
+ * no como un fallo al guardar: cuando esto se ejecuta la partida ya está en la
+ * base de datos y no hay vuelta atrás.
+ */
+export async function avisarPartida(
+  torneoId: number,
+  partidas: number[]
+): Promise<void> {
+  const { error } = await getSupabase().functions.invoke("avisar-partida", {
+    body: { torneo_id: torneoId, partidas },
+  });
+
+  if (!error) return;
+
+  // functions.invoke no lee el cuerpo de una respuesta de error: deja la
+  // Response en `context` y devuelve un mensaje genérico ("Edge Function
+  // returned a non-2xx status code"), que no dice nada. El motivo de verdad
+  // (falta un secreto, el chat_id no es el del grupo, el bot fue expulsado) va
+  // en el JSON, así que hay que sacarlo de ahí.
+  let detalle = error.message;
+  const contexto = (error as { context?: unknown }).context;
+  if (contexto instanceof Response) {
+    try {
+      const cuerpo = (await contexto.json()) as { error?: string };
+      if (cuerpo?.error) detalle = cuerpo.error;
+    } catch {
+      // Respuesta sin JSON (un 502 del gateway, por ejemplo): se queda el
+      // mensaje genérico, que al menos dice que la llamada no llegó.
+    }
+  }
+
+  throw new Error(detalle);
 }
 
 /**
