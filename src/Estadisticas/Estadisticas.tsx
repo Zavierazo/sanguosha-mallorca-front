@@ -86,9 +86,11 @@ const estiloDivision = (division: string | null): React.CSSProperties => {
 const BarraPorcentaje = ({
   valor,
   color,
+  maximo = 100,
 }: {
   valor: number | null;
   color: string;
+  maximo?: number;
 }) => {
   if (valor === null) return <span className="text-slate-400">—</span>;
   if (valor === 0) return <span className="text-slate-400">0</span>;
@@ -98,7 +100,7 @@ const BarraPorcentaje = ({
       <div
         aria-hidden="true"
         className={`absolute inset-y-0 left-0 rounded-sm ${color}`}
-        style={{ width: `${Math.min(valor, 100)}%` }}
+        style={{ width: `${Math.min((valor / maximo) * 100, 100)}%` }}
       />
       <span className="relative z-10 flex h-full items-center justify-center text-xs font-semibold text-slate-900">
         {valor}
@@ -193,6 +195,11 @@ const Estadisticas = () => {
   const resumen = useMemo(
     () => temporadas.find((t) => t.temporada === temporada),
     [temporadas, temporada]
+  );
+
+  const maxPartidas = useMemo(
+    () => Math.max(0, ...filas.map((f) => f.partidas)),
+    [filas]
   );
 
   const columnas = [
@@ -367,8 +374,12 @@ const Estadisticas = () => {
                       <td className="whitespace-nowrap px-3 py-1">
                         <Emparejado nombre={f.antisinergia} />
                       </td>
-                      <td className="px-3 py-1 text-right tabular-nums">
-                        {f.partidas ?? <span className="text-slate-400">—</span>}
+                      <td className="px-1 py-1">
+                        <BarraPorcentaje
+                          valor={f.partidas}
+                          maximo={maxPartidas}
+                          color="bg-violet-400"
+                        />
                       </td>
                     </tr>
                   ))}
