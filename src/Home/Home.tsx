@@ -85,7 +85,7 @@ const Home = () => {
                 </h2>
               </div>
               <div className="p-8 space-y-2">
-                <LinkItem href="/explicación_juego_y_escalado_de_complejidad.pdf">
+                <LinkItem href="/explicación_juego.pdf">
                   Explicación del juego y escalado de complejidad
                 </LinkItem>
                 <LinkItem href="/faq.pdf">

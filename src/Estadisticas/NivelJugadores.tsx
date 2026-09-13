@@ -42,7 +42,7 @@ type Fila = { [K in keyof FilaRpc]: FilaRpc[K] | null };
 
 /** Valores por defecto: los del informe original. */
 const MESES_POR_DEFECTO = 3;
-const NIVEL_POR_DEFECTO = 11;
+const NIVEL_POR_DEFECTO = 9;
 
 /**
  * Rango del desplegable de nivel, el mismo que el de la página de Ranking.
