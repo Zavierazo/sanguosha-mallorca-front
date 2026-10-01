@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   materialRenderers,
   materialCells,
@@ -8,7 +8,24 @@ import { JsonSchema } from "@jsonforms/core";
 import { pointByNumberPlayers, PointsData, RoleConfig } from "./config";
 import { ErrorObject } from "ajv";
 import { GameScore, PlayerScore } from "../Ranking//Ranking";
+import type { Personaje } from "../data";
+import {
+  PersonajeControl,
+  personajeControlTester,
+  type ConfigPersonaje,
+} from "./PersonajeControl";
+
+/** Los de material más el campo de personaje. Fuera del componente: estable. */
+const renderers = [
+  ...materialRenderers,
+  { tester: personajeControlTester, renderer: PersonajeControl },
+];
+
 interface RankingModalProps {
+  /** El catálogo, o null si no ha cargado: el campo sale deshabilitado. */
+  personajes: Personaje[] | null;
+  /** El nivel del desplegable: sus personajes se sugieren primero. */
+  nivel: number;
   players: string[];
   currentRound: number;
   previousPoints?: PlayerScore[];
@@ -18,6 +35,8 @@ interface RankingModalProps {
 }
 
 const RankingModal = ({
+  personajes,
+  nivel,
   players,
   currentRound,
   previousPoints,
@@ -43,10 +62,14 @@ const RankingModal = ({
           playerRole = playerIndex + 1 === currentRound ? "King" : "Rebel";
         }
         const playerAlive = previousPoints?.[playerIndex]?.alive;
+        const playerPersonaje = previousPoints?.[playerIndex]?.personaje;
         return {
           ...acc,
           [`${player}_role`]: playerRole,
           [`${player}_alive`]: playerAlive ?? true,
+          // undefined y no null cuando está vacío: el schema dice "string" y
+          // un null haría fallar la validación de JsonForms.
+          ...(playerPersonaje ? { [`${player}_personaje`]: playerPersonaje } : {}),
         };
       },
       {
@@ -55,6 +78,12 @@ const RankingModal = ({
     ),
   };
   const [playersData, setPlayersData] = useState(initialData);
+  // Memorizado: un objeto nuevo en cada render haría que JsonForms volviera a
+  // repartir el config a todos los controles en cada pulsación.
+  const configJugadores = useMemo(
+    () => ({ generateId: true, personajes, nivel } satisfies ConfigPersonaje & { generateId: boolean }),
+    [personajes, nivel]
+  );
   const [playersDataValid, setPlayersDataValid] = useState(true);
   const [dynamicData, setDynamicData] = useState({
     loyalDeathOnLastRebelDeath: previousScore?.loyalDeathOnLastRebelDeath ?? 0,
@@ -78,6 +107,10 @@ const RankingModal = ({
           [`${player}_alive`]: {
             type: "boolean",
             default: true,
+          },
+          // Opcional: no va en `required`.
+          [`${player}_personaje`]: {
+            type: "string",
           },
         };
       },
@@ -131,6 +164,13 @@ const RankingModal = ({
                 type: "Control",
                 scope: `#/properties/${player}_alive`,
                 label: "Alive?",
+              },
+              {
+                type: "Control",
+                scope: `#/properties/${player}_personaje`,
+                label: "Personaje",
+                // Lo recoge personajeControlTester.
+                options: { personaje: true, jugador: player },
               },
             ],
           },
@@ -230,10 +270,17 @@ const RankingModal = ({
         } else {
           roleAbbr = "?";
         }
+        const personaje = (playersData as Record<string, unknown>)[
+          `${player}_personaje`
+        ];
         return {
           role: roleAbbr,
           score,
           alive,
+          personaje:
+            typeof personaje === "string" && personaje.trim()
+              ? personaje.trim()
+              : null,
           winner:
             playersData.winner === role ||
             (playersData.winner === "King" && role === "Loyalist"),
@@ -392,15 +439,13 @@ const RankingModal = ({
           schema={playerRoleSchema}
           uischema={playerRoleUISchema}
           data={playersData}
-          renderers={materialRenderers}
+          renderers={renderers}
           cells={materialCells}
           onChange={({ errors, data }) => {
             setPlayersDataValid((errors?.length ?? 0) === 0);
             setPlayersData(data);
           }}
-          config={{
-            generateId: true,
-          }}
+          config={configJugadores}
         />
         <JsonForms
           schema={dynamicDataSchema}

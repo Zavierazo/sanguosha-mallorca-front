@@ -8,6 +8,11 @@ export interface FilaPuntuacion {
   rol: string;
   puntos: number;
   ganada: boolean;
+  /**
+   * Personaje que llevaba, o null si no se apuntó. crear_torneo() rechaza un
+   * nombre que no esté en `public.personajes` y guarda la grafía del catálogo.
+   */
+  personaje: string | null;
 }
 
 export interface CrearTorneoPayload {
@@ -32,7 +37,6 @@ export interface CrearTorneoResultado {
   scoring_system: string;
   partidas: number[];
   puntuaciones_insertadas: number;
-  jugadores_actualizados: number;
   jugadores_creados: string[];
 }
 
@@ -79,6 +83,9 @@ export function emparejarFilas(
         rol: score.role as string,
         puntos: score.score,
         ganada: Boolean(score.winner),
+        // `?.trim() || null`: los datos guardados en localStorage antes de que
+        // existiera el campo no lo traen, y una cadena vacía es "sin apuntar".
+        personaje: score.personaje?.trim() || null,
         vive: score.alive !== false,
       }))
   );
@@ -90,12 +97,13 @@ export function buildFilas(
   players: string[]
 ): FilaPuntuacion[] {
   return emparejarFilas(playerScores, players).map(
-    ({ num_partida, jugador, rol, puntos, ganada }) => ({
+    ({ num_partida, jugador, rol, puntos, ganada, personaje }) => ({
       num_partida,
       jugador,
       rol,
       puntos,
       ganada,
+      personaje,
     })
   );
 }

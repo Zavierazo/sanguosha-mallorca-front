@@ -7,6 +7,7 @@ import {
   type RawDataFila,
   type RawDataPartida,
 } from "./formatoRawData";
+import { NIVELES_PARTIDA } from "./niveles";
 
 /**
  * Tests del texto de Raw Data.
@@ -24,8 +25,7 @@ import {
 
 const OPCIONES: OpcionesParseo = {
   sistemaEsperado: "2024-01-01",
-  nivelMinimo: 1,
-  nivelMaximo: 15,
+  nivelesValidos: NIVELES_PARTIDA,
 };
 
 const JUGADORES = ["Arcan", "Miquel", "AliG", "Zatara", "Han Jin"];
@@ -328,6 +328,16 @@ describe("lo que se rechaza en vez de adivinar", () => {
     expect(resultado.ok).toBe(false);
     if (resultado.ok) return;
     expect(resultado.errores.join(" ")).toContain("99");
+  });
+
+  it("rechaza un decimal que no está en el desplegable (6.4)", () => {
+    const texto = formatRawData(partidaBase()).replace("Nivel: 5", "Nivel: 6.4");
+
+    const resultado = parseRawData(texto, OPCIONES);
+
+    expect(resultado.ok).toBe(false);
+    if (resultado.ok) return;
+    expect(resultado.errores.join(" ")).toContain("6.4");
   });
 
   it("rechaza una fecha con otro formato", () => {

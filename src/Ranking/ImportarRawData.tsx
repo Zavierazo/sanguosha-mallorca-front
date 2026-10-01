@@ -21,8 +21,8 @@ import {
 export interface ImportarRawDataProps {
   /** El `scoring_system` de esta pantalla. Un texto de otro sistema se rechaza. */
   sistemaEsperado: string;
-  nivelMinimo: number;
-  nivelMaximo: number;
+  /** Las opciones del desplegable de nivel. Otro nivel se rechaza. */
+  nivelesValidos: readonly number[];
   /** Si hay algo en pantalla que se perdería al cargar. */
   hayDatos: boolean;
   onImportar: (partida: RawDataPartida) => void;
@@ -30,8 +30,7 @@ export interface ImportarRawDataProps {
 
 const ImportarRawData = ({
   sistemaEsperado,
-  nivelMinimo,
-  nivelMaximo,
+  nivelesValidos,
   hayDatos,
   onImportar,
 }: ImportarRawDataProps) => {
@@ -43,8 +42,8 @@ const ImportarRawData = ({
     () =>
       texto.trim().length === 0
         ? null
-        : parseRawData(texto, { sistemaEsperado, nivelMinimo, nivelMaximo }),
-    [nivelMaximo, nivelMinimo, sistemaEsperado, texto]
+        : parseRawData(texto, { sistemaEsperado, nivelesValidos }),
+    [nivelesValidos, sistemaEsperado, texto]
   );
 
   const aplicar = useCallback(
@@ -74,14 +73,10 @@ const ImportarRawData = ({
       setTexto(pegado);
       setCargado(null);
 
-      const leido = parseRawData(pegado, {
-        sistemaEsperado,
-        nivelMinimo,
-        nivelMaximo,
-      });
+      const leido = parseRawData(pegado, { sistemaEsperado, nivelesValidos });
       if (leido.ok) aplicar(leido.partida);
     },
-    [aplicar, nivelMaximo, nivelMinimo, sistemaEsperado]
+    [aplicar, nivelesValidos, sistemaEsperado]
   );
 
   const rondas = useMemo(() => {

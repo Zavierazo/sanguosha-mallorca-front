@@ -10,6 +10,12 @@ import RawData from "./RawData";
 import ImportarRawData from "./ImportarRawData";
 import { formatRawData, type RawDataPartida } from "./formatoRawData";
 import {
+  NIVEL_MAXIMO,
+  NIVEL_MINIMO,
+  NIVELES_PARTIDA,
+  siguienteNivelEntero,
+} from "./niveles";
+import {
   buildFilas,
   emparejarFilas,
   type CrearTorneoResultado,
@@ -18,6 +24,7 @@ import ErrorConexion from "../ui/ErrorConexion";
 import {
   datos,
   describeError,
+  type Personaje,
   type PlayerActivity,
   type PlayerLevel,
 } from "../data";
@@ -34,6 +41,15 @@ export interface PlayerScore {
    * De ahí que continuar un torneo tenga que pasar por ese botón.
    */
   imported?: boolean;
+  /**
+   * Personaje que llevaba en esta ronda, o null/ausente si no se apuntó.
+   *
+   * Opcional en el tipo porque `playerScores` se guarda en localStorage y lo que
+   * hubiera guardado antes de existir el campo no lo trae. Las filas importadas
+   * de un torneo ya guardado tampoco: su personaje ya está en la base de datos y
+   * no se reenvía.
+   */
+  personaje?: string | null;
 }
 export interface GameScore {
   winner: string | null;
@@ -150,21 +166,14 @@ function formatearFechaCache(iso: string): string {
  */
 const SCORING_SYSTEM = "2024-01-01";
 
-/**
- * Rango de niveles de partida válidos.
+/*
+ * Los niveles de partida válidos (1..15 y 6.5) viven en ./niveles.ts.
  *
- * El 0 no es un nivel: `partidas.nivel` multiplica la experiencia con la fórmula
- * `xp_base + incremento * (nivel - 1)`, así que un 0 daría MENOS experiencia que
- * un 1 (16,5 en vez de 20). Estaba en el desplegable y no hay nada en la base de
- * datos que lo impida, así que se cierra aquí.
- *
- * Ojo: si se cambia el mínimo hay que mantener a la vez el valor inicial de
- * `gameLevel` y el caso "sin jugadores" de `calculateMinLevel`. Un `gameLevel`
- * fuera del rango del desplegable no mostraría ninguna opción seleccionada, el
+ * Ojo: el valor inicial de `gameLevel`, el caso "sin jugadores" de
+ * `calculateMinLevel` y las opciones del desplegable salen todos de ahí. Un
+ * `gameLevel` que no esté en NIVELES_PARTIDA no marcaría ninguna opción, el
  * navegador pintaría la primera y se guardaría un valor distinto del que se ve.
  */
-const NIVEL_MINIMO = 1;
-const NIVEL_MAXIMO = 15;
 
 /** `partidas.nivel` es numeric: 9.0 debe verse "9", pero existe el nivel 6.5. */
 const formatearNivel = (nivel: number): string => String(Number(nivel));
@@ -314,6 +323,33 @@ const Ranking = () => {
   useEffect(() => {
     refrescarDatos();
   }, [refrescarDatos]);
+
+  /**
+   * El catálogo de personajes, o null mientras no haya llegado.
+   *
+   * Va aparte del `Promise.all` de arriba a propósito: es un dato opcional (el
+   * personaje se puede dejar en blanco), y si su lectura falla no tiene que
+   * tumbar niveles y torneos, que sí son necesarios para guardar. Sin catálogo
+   * el campo del modal sale deshabilitado y lo dice.
+   *
+   * Se lee una vez por carga de página: sólo cambia cuando alguien recarga la
+   * tabla desde el editor SQL, y eso no pasa en mitad de una sesión de juego.
+   */
+  const [personajes, setPersonajes] = useState<Personaje[] | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    datos
+      .fetchPersonajes()
+      .then((lista) => {
+        if (!cancelado) setPersonajes(lista);
+      })
+      .catch((error) => {
+        console.error("No se ha podido cargar el catálogo de personajes:", error);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, []);
 
   const [playerChoice, setPlayerChoice] = useLocalStorage<string[]>(
     "playerChoice-v1",
@@ -480,7 +516,15 @@ const Ranking = () => {
     return {
       jugadores: listos.map((l) => l.nombre),
       desbloqueado,
-      siguiente: Math.min(NIVEL_MAXIMO, desbloqueado, nivelMesa + 1),
+      // El siguiente ENTERO: el 6.5 no cuenta como escalón (los niveles que se
+      // desbloquean por experiencia son enteros), así que desde 6 y desde 6.5
+      // se propone el 7. Con nivelMesa = 15 no se llega aquí: nadie desbloquea
+      // por encima del máximo.
+      siguiente: Math.min(
+        NIVEL_MAXIMO,
+        desbloqueado,
+        siguienteNivelEntero(nivelMesa) ?? NIVEL_MAXIMO
+      ),
       // La concordancia se resuelve aquí y no en el JSX: intercalar
       // condicionales en el texto acaba comiéndose los espacios.
       verbos: {
@@ -1018,8 +1062,7 @@ const Ranking = () => {
       */}
       <ImportarRawData
         sistemaEsperado={SCORING_SYSTEM}
-        nivelMinimo={NIVEL_MINIMO}
-        nivelMaximo={NIVEL_MAXIMO}
+        nivelesValidos={NIVELES_PARTIDA}
         hayDatos={filasParaBD.length > 0}
         onImportar={importarRawData}
       />
@@ -1118,12 +1161,9 @@ const Ranking = () => {
           }}
           className="ml-2 border border-gray-300 rounded px-2 py-1"
         >
-          {Array.from(
-            { length: NIVEL_MAXIMO - NIVEL_MINIMO + 1 },
-            (_, i) => i + NIVEL_MINIMO
-          ).map((nivel) => (
+          {NIVELES_PARTIDA.map((nivel) => (
             <option key={nivel} value={nivel}>
-              {nivel}
+              {formatearNivel(nivel)}
             </option>
           ))}
         </select>
@@ -1278,6 +1318,12 @@ const Ranking = () => {
                           playerScores[index][playerIndex].role +
                             " " +
                             playerScores[index][playerIndex]?.score}
+                        {playerScores[index]?.[playerIndex]?.role &&
+                          playerScores[index][playerIndex]?.personaje && (
+                            <div className="text-xs font-normal text-gray-600">
+                              {playerScores[index][playerIndex].personaje}
+                            </div>
+                          )}
                       </td>
                     ))}
                   </tr>
@@ -1321,6 +1367,8 @@ const Ranking = () => {
           contentLabel="Round Modal"
         >
           <RankingModal
+            personajes={personajes}
+            nivel={gameLevel}
             players={playerChoice}
             currentRound={currentRound}
             previousPoints={playerScores[currentRound - 1]}

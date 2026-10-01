@@ -18,6 +18,7 @@
 import { getSupabase, isSupabaseConfigured } from "../supabase/client";
 import type {
   DataSource,
+  Personaje,
   PlayerActivity,
   PlayerLevel,
   RoundEntry,
@@ -69,7 +70,7 @@ export class TimeoutLecturaError extends Error {
  * `AbortSignal.timeout` produce un `TimeoutError` y no un `AbortError`: mirar el
  * nombre fallaría en silencio.
  */
-async function fetchAllPages<T>(
+export async function fetchAllPages<T>(
   build: (
     from: number,
     to: number,
@@ -145,6 +146,24 @@ export function createSupabaseSource(): DataSource {
           nivel: row.max_nivel_jugado,
           nivelDesbloqueado: row.nivel_desbloqueado,
         }));
+    },
+
+    async fetchPersonajes(): Promise<Personaje[]> {
+      // Unas 1500 filas: pasa del tope de 1000 de PostgREST, así que la
+      // paginación aquí no es teórica. Orden por id para que las páginas no se
+      // solapen (el nombre se repite entre niveles).
+      const rows = await fetchAllPages((from, to, signal) =>
+        supabase
+          .from("personajes")
+          .select("nombre,nivel")
+          .order("id", { ascending: true })
+          .range(from, to)
+          .abortSignal(signal)
+      );
+
+      // PostgREST devuelve numeric como número JSON; Number() por si acaso
+      // llegara como cadena, que es lo que hace con numeric de mucha precisión.
+      return rows.map((row) => ({ nombre: row.nombre, nivel: Number(row.nivel) }));
     },
 
     async fetchTournaments(): Promise<TournamentSummary[]> {

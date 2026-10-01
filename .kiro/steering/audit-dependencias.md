@@ -38,7 +38,7 @@ npm install                  # deja el lockfile coherente
 Después, **las cuatro comprobaciones, en este orden**, y ninguna es opcional:
 
 ```powershell
-npm test        # 42 tests, deben pasar todos
+npm test        # 83 tests (2026-10-01), deben pasar todos
 npm run lint    # exit 0
 npm run build   # vite build
 & node ".\node_modules\typescript\bin\tsc" --noEmit
@@ -63,6 +63,28 @@ Comprobado con `npm view <paquete> peerDependencies`:
 | `@mui/x-date-pickers` 8 → 9 | lo mismo: jsonforms pide `^8.0.0` |
 | `typescript` 5.9 → 7 | `typescript-eslint` 8.x pide `typescript >=4.8.4 <6.1.0` |
 | `@types/node` → 25 o 26 | debe casar con el Node del CI, que es 24. Fijado a `^24` |
+| `eslint` 9 → 10 | `eslint-plugin-react` 7.37.5 (la última) pide `eslint ^9.7` |
+| `@mui/x-charts` 8 → 9 | pide MUI 9, que está bloqueado por jsonforms. Fijada a `8.29.3` |
+
+Majors **no bloqueados** a 2026-10-01, pendientes de decidir aparte (no son un
+bump rutinario de audit):
+
+- `vitest` 4 → 5: sus peers admiten vite 8 y Node 22.12+/24. Es lo único que se
+  podría subir hoy sin chocar con nada.
+- `web-vitals` 5 → 6: `src/index.tsx` llama a `reportWebVitals()` **sin
+  callback**, así que hoy no mide nada. Antes de subirlo, decidir si se quita.
+
+### Audit de 2026-10-01
+
+6 high, 1 de ellas en producción (`fast-uri` vía `ajv`, que llega por jsonforms;
+las otras: `brace-expansion` del linting, `undici` y `sharp` de `wrangler`).
+`npm audit fix` las cerró todas dentro de rango. **`npm update` falló dos veces**
+con `Cannot read properties of null (reading 'edgesOut')` (npm 10.9.2); lo que
+funcionó fue `npm install paquete@^versión` con las versiones `Wanted` de
+`npm outdated`. Tras eso: 593 entradas en el lockfile (49 linux, 16 darwin), 83
+tests. En la primera pasada de tests tras actualizar falló uno y no se
+reprodujo en 21 pasadas más; ningún test usa reloj ni azar. Si vuelve a pasar,
+ejecutar con `--reporter=verbose` y apuntar cuál.
 
 Sobre MUI hay un detalle que cambia la decisión: **no hay ni un `import` de
 `@mui/*` en `src`**. MUI, `@emotion/react`, `@emotion/styled` y `dayjs` están en
@@ -174,10 +196,15 @@ el recuento no baja: lo que se gana es que nuestro código ya no lo usa.
 
 ## Los tests son parte del audit
 
-Hay **42 tests** en `src/supabase/crearTorneo.test.ts` y
-`src/Ranking/formatoRawData.test.ts`, todos de lógica pura. Son la primera red al
-subir versiones: cubren el emparejado nombre-puntuación (de donde salen las filas
-que se guardan en `puntuaciones`) y el ciclo completo del texto de Raw Data.
+Hay **57 tests** en `src/supabase/crearTorneo.test.ts`,
+`src/Ranking/formatoRawData.test.ts` y
+`src/Estadisticas/Espia/agregarEspia.test.ts`, todos de lógica pura. Son la
+primera red al subir versiones: cubren el emparejado nombre-puntuación (de donde
+salen las filas que se guardan en `puntuaciones`), el ciclo completo del texto de
+Raw Data y la agregación de las estadísticas del espía. Ningún test pinta los
+gráficos de `@mui/x-charts`: tras subirla, abrir `/estadisticas/bandos` y
+`/estadisticas/espia` a mano. (Hoy son 79 tests en 7 ficheros: hay más ficheros
+de test que los tres citados arriba.)
 
 Se comprobó que muerden, rompiendo el código a mano: reintroducir el fallo del
 `filter` antes del `map` hace caer un test, y quitar el marcador `muere` del
@@ -242,5 +269,5 @@ componentes. Para escribir el primero hay que instalar `jsdom` y
 
 Deja dicho, con números, qué cambió y qué no se pudo verificar. En concreto: no
 hay tests de integración contra Supabase, así que un salto de `supabase-js`
-compila y pasa los 42 tests sin demostrar que la web siga leyendo y escribiendo.
+compila y pasa los 79 tests sin demostrar que la web siga leyendo y escribiendo.
 Antes de desplegar, abrir `/ranking` y `/estadisticas` a mano.

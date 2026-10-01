@@ -108,6 +108,9 @@ export const datos: DataSource = {
   fetchPlayerActivity: () =>
     leer("fetchPlayerActivity", (source) => source.fetchPlayerActivity()),
 
+  fetchPersonajes: () =>
+    leer("fetchPersonajes", (source) => source.fetchPersonajes()),
+
   fetchPlayerLevels: () =>
     leer("fetchPlayerLevels", (source) => source.fetchPlayerLevels()),
 

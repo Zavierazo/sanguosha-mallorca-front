@@ -54,6 +54,15 @@ const Home = () => {
                 <LinkItem href="/estadisticas/nivel-jugadores" isInternal>
                   Nivel jugadores
                 </LinkItem>
+                <LinkItem href="/estadisticas/partidas" isInternal>
+                  Partidas jugadas
+                </LinkItem>
+                <LinkItem href="/estadisticas/bandos" isInternal>
+                  Qué bando gana
+                </LinkItem>
+                <LinkItem href="/estadisticas/espia" isInternal>
+                  El espía
+                </LinkItem>
                 <LinkItem href="/torneos" isInternal>
                   Torneos
                 </LinkItem>

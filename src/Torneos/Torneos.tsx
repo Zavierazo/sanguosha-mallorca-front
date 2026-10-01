@@ -17,12 +17,12 @@ type Temporada = number | typeof TODAS;
 // ---------------------------------------------------------------------------
 
 const columnas = [
-  { clave: "pos", texto: "Pos", ayuda: "Puesto en la clasificación: ponderado, torneos ganados y, para deshacer el empate, podios. Sólo se comparte puesto cuando coinciden en las tres" },
+  { clave: "pos", texto: "Pos", ayuda: "Puesto en la clasificación: ponderado, torneos ganados y, para deshacer el empate, podios. Sólo se comparte puesto cuando coinciden en las tres", centrada: true },
   { clave: "jugador", texto: "Jugador" },
-  { clave: "ganados", texto: "🏆 Ganados", ayuda: "Torneos completos ganados" },
-  { clave: "podio", texto: "🏅 Podio", ayuda: "Veces entre los tres primeros por puntos del torneo" },
-  { clave: "participados", texto: "Participados", ayuda: "Torneos completos en los que ha jugado" },
-  { clave: "pct_wins", texto: "★ % Wins", ayuda: "Torneos ganados sobre torneos jugados" },
+  { clave: "ganados", texto: "🏆 Ganados", ayuda: "Torneos completos ganados", centrada: true },
+  { clave: "podio", texto: "🏅 Podio", ayuda: "Veces entre los tres primeros por puntos del torneo", centrada: true },
+  { clave: "participados", texto: "Participados", ayuda: "Torneos completos en los que ha jugado", centrada: true },
+  { clave: "pct_wins", texto: "★ % Wins", ayuda: "Torneos ganados sobre torneos jugados", centrada: true },
 ];
 
 // `fn_torneos` devuelve además `ponderado` y `elo`. No se pintan, pero son las
@@ -127,7 +127,7 @@ const Torneos = () => {
     <>
       <Navbar />
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-        <div className="max-w-7xl mx-auto px-4 py-10 sm:px-6">
+        <div className="max-w-3xl mx-auto px-4 py-10 sm:px-6">
           <div className="mb-8">
             <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
               Torneos
@@ -197,7 +197,7 @@ const Torneos = () => {
             </p>
           ) : (
             <div className="overflow-x-auto rounded-xl bg-white shadow-lg">
-              <table className="min-w-full border-collapse text-sm">
+              <table className="w-full border-collapse text-sm">
                 <caption className="sr-only">
                   Clasificación por torneos ganados
                   {temporada === TODAS ? " (toda la historia)" : ` en ${temporada}`}
@@ -209,7 +209,9 @@ const Torneos = () => {
                         key={c.clave}
                         scope="col"
                         title={c.ayuda}
-                        className="whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide"
+                        className={`whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide ${
+                          c.centrada ? "text-center" : "text-left"
+                        }`}
                       >
                         {c.texto}
                       </th>
@@ -222,7 +224,7 @@ const Torneos = () => {
                       key={f.jugador}
                       className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
                     >
-                      <td className="px-3 py-1 text-right font-mono text-slate-500 tabular-nums">
+                      <td className="px-3 py-1 text-center font-mono text-slate-500 tabular-nums">
                         {f.pos}
                       </td>
                       <th
@@ -231,16 +233,16 @@ const Torneos = () => {
                       >
                         {f.jugador}
                       </th>
-                      <td className="px-3 py-1 text-right font-semibold tabular-nums">
+                      <td className="px-3 py-1 text-center font-semibold tabular-nums">
                         {f.ganados}
                       </td>
-                      <td className="px-3 py-1 text-right tabular-nums">
+                      <td className="px-3 py-1 text-center tabular-nums">
                         {f.podio}
                       </td>
-                      <td className="px-3 py-1 text-right tabular-nums">
+                      <td className="px-3 py-1 text-center tabular-nums">
                         {f.participados}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums">
+                      <td className="whitespace-nowrap px-3 py-1 text-center tabular-nums">
                         <span aria-hidden="true" className="text-amber-400">
                           ★
                         </span>{" "}

@@ -60,6 +60,7 @@ const GuardarPartida = ({
   const rondas = Array.from(new Set(filas.map((f) => f.num_partida))).sort(
     (a, b) => a - b
   );
+  const conPersonaje = filas.filter((f) => f.personaje).length;
 
   /**
    * Firma de lo que se va a guardar, como cadena.
@@ -274,7 +275,30 @@ const GuardarPartida = ({
               {rondas.length === 0 ? "ninguna" : rondas.join(", ")} (
               {filas.length} filas)
             </dd>
+
+            <dt className="font-medium">Personajes</dt>
+            <dd>
+              {conPersonaje} de {filas.length} filas
+            </dd>
           </dl>
+
+          {/* Detalle por ronda, sólo si hay algo que enseñar. */}
+          {conPersonaje > 0 && (
+            <details className="mt-2 text-sm text-gray-700">
+              <summary className="cursor-pointer">Personajes por ronda</summary>
+              <ul className="mt-1 ml-4 list-disc">
+                {rondas.map((ronda) => (
+                  <li key={ronda}>
+                    Ronda {ronda}:{" "}
+                    {filas
+                      .filter((f) => f.num_partida === ronda)
+                      .map((f) => `${f.jugador} → ${f.personaje ?? "—"}`)
+                      .join(", ")}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
 
           {sinDatos && (
             <p className="mt-2 text-sm text-gray-600">
@@ -333,11 +357,11 @@ const GuardarPartida = ({
               {resultado.partidas.length === 1 ? " partida " : "s partidas "}
               {resultado.partidas.join(", ")}.
             </p>
-            <p className="mt-1">
-              Jugadores actualizados: {resultado.jugadores_actualizados}.
-              {resultado.jugadores_creados.length > 0 &&
-                ` Creados: ${resultado.jugadores_creados.join(", ")}.`}
-            </p>
+            {resultado.jugadores_creados.length > 0 && (
+              <p className="mt-1">
+                Jugadores creados: {resultado.jugadores_creados.join(", ")}.
+              </p>
+            )}
 
             {/*
               El aviso al grupo va dentro del recuadro verde, no en uno propio:

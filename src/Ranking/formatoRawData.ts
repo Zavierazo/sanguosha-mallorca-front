@@ -80,8 +80,8 @@ export interface OpcionesParseo {
    * fueran de este reglamento falsearía el ranking.
    */
   sistemaEsperado: string;
-  nivelMinimo: number;
-  nivelMaximo: number;
+  /** Las opciones del desplegable de nivel (NIVELES_PARTIDA de ./niveles.ts). */
+  nivelesValidos: readonly number[];
 }
 
 export type ResultadoParseo =
@@ -373,11 +373,11 @@ export function parseRawData(
   const nivel = Number(nivelTexto.replace(",", "."));
   if (!nivelTexto || !Number.isFinite(nivel)) {
     errores.push("Falta el nivel de la partida, o no es un número.");
-  } else if (nivel < opciones.nivelMinimo || nivel > opciones.nivelMaximo) {
+  } else if (!opciones.nivelesValidos.includes(nivel)) {
     // El nivel multiplica la experiencia de todos los jugadores de la mesa, así
-    // que un valor fuera de rango no se corrige en silencio.
+    // que un valor que no está en el desplegable no se corrige en silencio.
     errores.push(
-      `El nivel ${nivel} está fuera del rango ${opciones.nivelMinimo}-${opciones.nivelMaximo}.`
+      `El nivel ${nivel} no es válido. Valores admitidos: ${opciones.nivelesValidos.join(", ")}.`
     );
   }
 

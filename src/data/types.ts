@@ -74,8 +74,27 @@ export interface RoundEntry {
 /** numPartida -> jugador -> resultado. La forma que ya consumía Ranking.tsx. */
 export type TournamentRounds = Map<number, Map<string, RoundEntry>>;
 
+/**
+ * Una entrada del catálogo de personajes (`public.personajes`).
+ *
+ * El mismo nombre puede aparecer en varios niveles (Sūn Quán está en cinco), así
+ * que el nombre NO identifica una fila. Lo que se guarda en
+ * `puntuaciones.personaje` es sólo el nombre. Ver BD/migration/pg/18_personajes.sql.
+ */
+export interface Personaje {
+  nombre: string;
+  /** Entero de 1 a 15, o 6.5. */
+  nivel: number;
+}
+
 export interface DataSource {
   fetchPlayerActivity(): Promise<PlayerActivity[]>;
+  /**
+   * El catálogo completo, unas 1500 filas. Ranking.tsx lo pide aparte de las
+   * otras tres lecturas: si falla, el campo de personaje se queda sin
+   * sugerencias pero el resto de la pantalla sigue funcionando.
+   */
+  fetchPersonajes(): Promise<Personaje[]>;
   fetchPlayerLevels(): Promise<PlayerLevel[]>;
   fetchTournaments(): Promise<TournamentSummary[]>;
   fetchTournamentRounds(torneoId: string): Promise<TournamentRounds>;

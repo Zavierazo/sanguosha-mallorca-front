@@ -44,6 +44,7 @@ describe("emparejarFilas: el emparejado nombre-puntuación", () => {
         rol: "R",
         puntos: 5,
         ganada: true,
+        personaje: null,
         vive: true,
       },
       {
@@ -52,6 +53,7 @@ describe("emparejarFilas: el emparejado nombre-puntuación", () => {
         rol: "L",
         puntos: 3,
         ganada: false,
+        personaje: null,
         vive: true,
       },
       {
@@ -60,6 +62,7 @@ describe("emparejarFilas: el emparejado nombre-puntuación", () => {
         rol: "V",
         puntos: 1,
         ganada: false,
+        personaje: null,
         vive: true,
       },
     ]);
@@ -184,6 +187,7 @@ describe("buildFilas: el payload que llega a crear_torneo()", () => {
         rol: "R",
         puntos: 5,
         ganada: true,
+        personaje: null,
       },
       {
         num_partida: 1,
@@ -191,6 +195,7 @@ describe("buildFilas: el payload que llega a crear_torneo()", () => {
         rol: "V",
         puntos: 2,
         ganada: false,
+        personaje: null,
       },
     ]);
     for (const fila of filas) {
@@ -225,5 +230,63 @@ describe("buildFilas: el payload que llega a crear_torneo()", () => {
         return resto;
       })
     );
+  });
+});
+
+describe("personaje: viaja con su jugador hasta el payload", () => {
+  it("se empareja con el jugador correcto en un torneo continuado", () => {
+    // Misma trampa que la regresión de arriba: si el personaje se emparejara
+    // después de filtrar las filas importadas, acabaría en otro jugador.
+    const jugadores = ["Arcan", "Miquel", "AliG"];
+    const rondas: PlayerScore[][] = [
+      [
+        puntuacion({ role: "R", imported: true }),
+        puntuacion({ role: "L", imported: true }),
+        puntuacion({ role: "V", imported: true }),
+      ],
+      [
+        puntuacion({ role: "V", personaje: "Cáo Cāo" }),
+        puntuacion({ role: "R", personaje: null }),
+        puntuacion({ role: "L", personaje: "Sūn Quán" }),
+      ],
+    ];
+
+    expect(
+      buildFilas(rondas, jugadores).map((f) => [f.jugador, f.personaje])
+    ).toEqual([
+      ["Arcan", "Cáo Cāo"],
+      ["Miquel", null],
+      ["AliG", "Sūn Quán"],
+    ]);
+  });
+
+  it("vacío o sólo espacios es null, y se recorta", () => {
+    const rondas: PlayerScore[][] = [
+      [
+        puntuacion({ personaje: "" }),
+        puntuacion({ personaje: "   " }),
+        puntuacion({ personaje: "  Ma Yunlu " }),
+      ],
+    ];
+
+    expect(
+      buildFilas(rondas, ["A", "B", "C"]).map((f) => f.personaje)
+    ).toEqual([null, null, "Ma Yunlu"]);
+  });
+
+  it("los datos viejos de localStorage, sin el campo, dan null", () => {
+    // Un PlayerScore guardado antes de que existiera `personaje`.
+    const viejo = { role: "R", score: 3, alive: true, winner: true } as PlayerScore;
+
+    expect(buildFilas([[viejo]], ["Arcan"])).toEqual([
+      {
+        num_partida: 1,
+        jugador: "Arcan",
+        rol: "R",
+        puntos: 3,
+        ganada: true,
+        personaje: null,
+      },
+    ]);
   });
 });
