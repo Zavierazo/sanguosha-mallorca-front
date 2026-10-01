@@ -58,19 +58,16 @@ export type Database = {
           division: string
           medal: string
           min_elo: number
-          winrate: number | null
         }
         Insert: {
           division: string
           medal: string
           min_elo: number
-          winrate?: number | null
         }
         Update: {
           division?: string
           medal?: string
           min_elo?: number
-          winrate?: number | null
         }
         Relationships: []
       }
@@ -175,33 +172,33 @@ export type Database = {
           id: number
           jugador: string | null
           kills: number | null
-          num_partida: number | null
+          num_partida: number
           personaje: string | null
           puntos: number | null
           rol: string
-          torneo_id: number | null
+          torneo_id: number
         }
         Insert: {
           ganada?: boolean | null
           id?: number
           jugador?: string | null
           kills?: number | null
-          num_partida?: number | null
+          num_partida: number
           personaje?: string | null
           puntos?: number | null
           rol: string
-          torneo_id?: number | null
+          torneo_id: number
         }
         Update: {
           ganada?: boolean | null
           id?: number
           jugador?: string | null
           kills?: number | null
-          num_partida?: number | null
+          num_partida?: number
           personaje?: string | null
           puntos?: number | null
           rol?: string
-          torneo_id?: number | null
+          torneo_id?: number
         }
         Relationships: [
           {
@@ -277,43 +274,6 @@ export type Database = {
       }
     }
     Views: {
-      v_espia: {
-        Row: {
-          activo: boolean | null
-          espia: number | null
-          espia_ganadas: number | null
-          gana_espia: number | null
-          gana_rebeldes: number | null
-          gana_rey: number | null
-          jugador: string | null
-          num_jugadores: number | null
-          partidas: number | null
-          prob_esperada_sum: number | null
-          sin_ganador: number | null
-          ultima_partida: string | null
-        }
-        Relationships: []
-      }
-      v_estadisticas: {
-        Row: {
-          antisinergia: string | null
-          archienemigo: string | null
-          division: string | null
-          elo_ajustado: number | null
-          espia: number | null
-          jugador: string | null
-          leal: number | null
-          partidas: number | null
-          pct_wins: number | null
-          ponderado: number | null
-          pos: number | null
-          rango: string | null
-          rebelde: number | null
-          rey: number | null
-          sinergia: string | null
-        }
-        Relationships: []
-      }
       v_games: {
         Row: {
           descripcion: string | null
@@ -365,17 +325,6 @@ export type Database = {
         }
         Relationships: []
       }
-      v_iniciaciones: {
-        Row: {
-          debut_fecha: string | null
-          debut_torneo_id: number | null
-          iniciaciones: number | null
-          iniciados: number | null
-          jugador: string | null
-          pos: number | null
-        }
-        Relationships: []
-      }
       v_jugadores: {
         Row: {
           id: number | null
@@ -394,8 +343,6 @@ export type Database = {
       v_jugadores_actividad: {
         Row: {
           jugador: string | null
-          partidas_jugadas: number | null
-          primera_partida: string | null
           ultima_partida: string | null
         }
         Relationships: [
@@ -414,19 +361,6 @@ export type Database = {
             referencedColumns: ["nombre"]
           },
         ]
-      }
-      v_nivel_jugadores: {
-        Row: {
-          completo: boolean | null
-          exp: number | null
-          exp_necesaria: number | null
-          jugador: string | null
-          nivel: number | null
-          porcentaje: number | null
-          rango: string | null
-          ultima_partida: string | null
-        }
-        Relationships: []
       }
       v_niveles_por_jugador: {
         Row: {
@@ -494,19 +428,6 @@ export type Database = {
             referencedColumns: ["nombre"]
           },
         ]
-      }
-      v_torneos: {
-        Row: {
-          elo: number | null
-          ganados: number | null
-          jugador: string | null
-          participados: number | null
-          pct_wins: number | null
-          podio: number | null
-          ponderado: number | null
-          pos: number | null
-        }
-        Relationships: []
       }
       v_torneos_completos: {
         Row: {
@@ -676,26 +597,6 @@ export type Database = {
           ponderado: number
           pos: number
         }[]
-      }
-      insertar_puntuaciones: {
-        Args: { p_rows: Json }
-        Returns: {
-          ganada: boolean | null
-          id: number
-          jugador: string | null
-          kills: number | null
-          num_partida: number | null
-          personaje: string | null
-          puntos: number | null
-          rol: string
-          torneo_id: number | null
-        }[]
-        SetofOptions: {
-          from: "*"
-          to: "puntuaciones"
-          isOneToOne: false
-          isSetofReturn: true
-        }
       }
       soy_organizador: { Args: never; Returns: boolean }
     }

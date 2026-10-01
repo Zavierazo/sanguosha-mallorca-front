@@ -188,8 +188,8 @@ const Espia = () => {
                   <>
                     Para cada jugador, qué bando ganó las partidas en las que él
                     era el espía. Ordenado de más a menos victorias del Rey. Sólo
-                    mesas de 5, 7, 9 y 10, las que tienen un único reparto de
-                    roles; entre paréntesis, las partidas que cuentan.
+                    mesas de 5, 7, 9 y 10, que son las partidas en las que el Espía
+                    tiene más peso; entre paréntesis, las partidas que cuentan.
                   </>
                 }
               >

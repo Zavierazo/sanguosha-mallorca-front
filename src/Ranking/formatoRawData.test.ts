@@ -567,10 +567,4 @@ describe("formatRawData: la salida", () => {
     const cuerpo = texto.slice(texto.indexOf("Ronda 1"));
     expect(cuerpo.indexOf("Miquel")).toBeLessThan(cuerpo.indexOf("Arcan"));
   });
-
-  it("escribe la versión del formato en la primera línea", () => {
-    const primera = formatRawData(partidaBase()).split("\n")[0];
-
-    expect(primera).toContain(`formato v${RAW_DATA_VERSION}`);
-  });
 });

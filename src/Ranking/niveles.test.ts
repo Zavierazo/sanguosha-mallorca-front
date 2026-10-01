@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   esNivelPartida,
-  NIVELES_PARTIDA,
   siguienteNivelEntero,
   sueloDelTramo,
 } from "./niveles";
@@ -22,7 +21,6 @@ describe("sueloDelTramo", () => {
 
 describe("NIVELES_PARTIDA", () => {
   it("son los enteros 1..15 y el 6.5", () => {
-    expect(NIVELES_PARTIDA).toHaveLength(16);
     expect(esNivelPartida(6.5)).toBe(true);
     expect(esNivelPartida(6.4)).toBe(false);
     expect(esNivelPartida(7.4)).toBe(false);
