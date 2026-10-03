@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import "./RankingModal.css";
 import {
   baseDeRonda,
   borradorDeRonda,
@@ -487,8 +488,9 @@ const RankingModal = ({
   };
 
   return (
-    <div className="RankingModal-component p-2">
-      <div className="my-3">
+    <div className="RankingModal-component">
+      <div className="rm-header">Ronda {currentRound}</div>
+      <div className="rm-body">
         <JsonForms
           schema={playerRoleSchema}
           uischema={playerRoleUISchema}
@@ -516,28 +518,37 @@ const RankingModal = ({
           }}
         />
       </div>
-      <div className="flex flex-col justify-center text-cen gap-3 m-5">
-        {additionalErrors.map((error, index) => (
-          <div key={index} className="text-red-500">
-            {error.message}
+      {/*
+       * Los errores van en el pie y no al final del cuerpo: con 10 jugadores,
+       * al final del cuerpo quedarían fuera de la pantalla en el móvil y
+       * pulsar Submit parecería no hacer nada.
+       */}
+      <div className="rm-footer">
+        {additionalErrors.length > 0 && (
+          <div className="rm-errores flex flex-col gap-1 text-center" role="alert">
+            {additionalErrors.map((error, index) => (
+              <div key={index} className="text-red-600 text-sm">
+                {error.message}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="flex justify-center gap-5">
-        <button
-          type="button"
-          className="px-2 py-1 text-xl font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
-          onClick={() => submitModal()}
-        >
-          Submit
-        </button>
-        <button
-          type="button"
-          className="px-2 py-1 text-xl font-medium text-center text-white bg-red-700 rounded-lg hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300"
-          onClick={() => handleClose()}
-        >
-          Cancel
-        </button>
+        )}
+        <div className="flex justify-center gap-5">
+          <button
+            type="button"
+            className="px-4 py-2 text-xl font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
+            onClick={() => submitModal()}
+          >
+            Submit
+          </button>
+          <button
+            type="button"
+            className="px-4 py-2 text-xl font-medium text-center text-white bg-red-700 rounded-lg hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300"
+            onClick={() => handleClose()}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

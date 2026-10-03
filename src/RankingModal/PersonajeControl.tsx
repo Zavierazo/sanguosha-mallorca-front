@@ -103,7 +103,9 @@ const PersonajeControlBase = ({
       disabled={!enabled || sinCatalogo}
       autoHighlight
       size="small"
-      sx={{ minWidth: 220 }}
+      // En el móvil el campo ocupa su propia línea (RankingModal.css) y un
+      // mínimo fijo lo haría desbordar en las pantallas más estrechas.
+      sx={{ minWidth: { xs: 0, sm: 220 }, width: "100%" }}
       renderInput={(params) => (
         <TextField
           {...params}

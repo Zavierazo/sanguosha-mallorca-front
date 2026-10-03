@@ -1413,6 +1413,11 @@ const Ranking = () => {
           isOpen={isOpen}
           onRequestClose={closeModal}
           contentLabel="Round Modal"
+          // Con clases propias react-modal no pone sus estilos en línea (un
+          // recuadro con inset de 40px que no cabía en el móvil). El diseño
+          // está en ../RankingModal/RankingModal.css.
+          className="rm-content"
+          overlayClassName="rm-overlay"
         >
           <RankingModal
             // Un montaje por ronda: el modal lee su borrador al montarse.

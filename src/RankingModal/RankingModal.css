@@ -1,21 +1,122 @@
+/*
+ * El modal de ronda. El 90 % de las veces se usa en el móvil, así que el
+ * diseño base es el del móvil y el de escritorio va en la media query.
+ *
+ * - Móvil (< 640px, el `sm` de Tailwind): pantalla completa.
+ * - Escritorio: recuadro centrado.
+ * - En los dos: cabecera y pie fijos, y sólo el cuerpo hace scroll, para que
+ *   Submit/Cancel y los errores de validación estén siempre a la vista.
+ *
+ * Las clases de react-modal se pasan desde Ranking.tsx (className y
+ * overlayClassName). Al pasarlas, react-modal deja de poner sus estilos en
+ * línea por defecto (el recuadro con inset de 40px), que eran los que hacían
+ * que el modal no cupiera en el móvil.
+ */
+
+.rm-overlay {
+  position: fixed;
+  inset: 0;
+  /* Por debajo de 1300, el z-index de los menús de MUI (el desplegable de
+     Role y la lista del Autocomplete se pintan en un portal en <body>). */
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rm-content {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  outline: none;
+  overflow: hidden;
+}
+
+/* Que la página de detrás no haga scroll con el modal abierto. */
+body.ReactModal__Body--open {
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .rm-content {
+    position: relative;
+    inset: auto;
+    width: calc(100% - 2rem);
+    max-width: 760px;
+    max-height: 90vh;
+    border-radius: 0.75rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* El componente llena el contenido y reparte cabecera / cuerpo / pie. */
 .RankingModal-component {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-/* Limitar ancho de dropdowns en móvil */
-.RankingModal-component .MuiFormControl-root,
-.RankingModal-component .MuiTextField-root {
-  max-width: 200px !important;
-  width: 100%;
+.rm-header {
+  flex: none;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 1.125rem;
+  font-weight: 600;
 }
 
-/* Asegurar que los inputs no se desborden */
-.RankingModal-component .MuiInputBase-root {
-  max-width: 200px;
+.rm-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.5rem 1rem 1rem;
 }
 
-/* Contenedor de los formularios */
-.RankingModal-component form {
-  width: 100%;
+.rm-footer {
+  flex: none;
+  border-top: 1px solid #e5e7eb;
+  padding: 0.75rem 1rem;
+  /* La barra de gestos del iPhone. */
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  background: #fff;
+}
+
+.rm-errores {
+  max-height: 30vh;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+}
+
+/*
+ * La fila de cada jugador es un HorizontalLayout de JsonForms, que se pinta
+ * como un Grid de MUI con direction="row" y los tres hijos (Role, Alive,
+ * Personaje) con size="grow", o sea a partes iguales en una sola línea. En el
+ * móvil no caben: Role y Alive se quedan en la misma línea y Personaje pasa a
+ * la siguiente, a todo el ancho.
+ *
+ * Sólo afecta a las filas de jugador: el resto del formulario son
+ * VerticalLayout (direction="column").
+ */
+@media (max-width: 639.98px) {
+  .rm-body .MuiGrid-direction-xs-row {
+    flex-wrap: wrap;
+  }
+
+  .rm-body .MuiGrid-direction-xs-row > :nth-child(3) {
+    flex-basis: 100%;
+  }
+}
+
+/* El nombre del jugador: el Label de JsonForms es un h6, demasiado grande. */
+.rm-body .MuiTypography-h6 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f3f4f6;
 }
