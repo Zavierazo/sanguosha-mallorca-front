@@ -1,4 +1,13 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  baseDeRonda,
+  borradorDeRonda,
+  conBorrador,
+  escribirBorradores,
+  firmaMesa,
+  leerBorradores,
+  sinBorrador,
+} from "./borrador";
 import {
   materialRenderers,
   materialCells,
@@ -77,7 +86,22 @@ const RankingModal = ({
       }
     ),
   };
-  const [playersData, setPlayersData] = useState(initialData);
+  /*
+   * Borrador (ver ./borrador.ts). Se calcula UNA vez al montar: react-modal
+   * desmonta el contenido al cerrarse y Ranking pasa key={currentRound}, así
+   * que cada apertura de una ronda es un montaje nuevo. La base y la mesa se
+   * congelan aquí a propósito: describen la ronda tal como estaba al abrirla.
+   */
+  const [{ mesa, base, borrador }] = useState(() => {
+    const mesa = firmaMesa(players);
+    const base = baseDeRonda(players, previousPoints, previousScore);
+    const borrador = borradorDeRonda(leerBorradores(), mesa, currentRound, base, new Date());
+    return { mesa, base, borrador };
+  });
+
+  const [playersData, setPlayersData] = useState(
+    () => (borrador ? { ...initialData, ...borrador.jugadores } : initialData) as typeof initialData
+  );
   // Memorizado: un objeto nuevo en cada render haría que JsonForms volviera a
   // repartir el config a todos los controles en cada pulsación.
   const configJugadores = useMemo(
@@ -85,12 +109,37 @@ const RankingModal = ({
     [personajes, nivel]
   );
   const [playersDataValid, setPlayersDataValid] = useState(true);
-  const [dynamicData, setDynamicData] = useState({
-    loyalDeathOnLastRebelDeath: previousScore?.loyalDeathOnLastRebelDeath ?? 0,
-    spyRebelKilled: previousScore?.spyRebelKilled ?? 0,
-    spyFinalDuel: previousScore?.spyFinalDuel ?? false,
-    spyFinalTrio: previousScore?.spyFinalTrio ?? false,
+  const [dynamicData, setDynamicData] = useState(() => {
+    const inicial = {
+      loyalDeathOnLastRebelDeath: previousScore?.loyalDeathOnLastRebelDeath ?? 0,
+      spyRebelKilled: previousScore?.spyRebelKilled ?? 0,
+      spyFinalDuel: previousScore?.spyFinalDuel ?? false,
+      spyFinalTrio: previousScore?.spyFinalTrio ?? false,
+    };
+    return (borrador ? { ...inicial, ...borrador.dinamicos } : inicial) as typeof inicial;
   });
+
+  /*
+   * Cada cambio se guarda. El primer disparo (al montar, sin que nadie haya
+   * tocado nada) también escribe: es lo que marca la ronda como "abierta" para
+   * reabrirla si la página se recarga ahora mismo.
+   *
+   * `enviado` evita que, tras Submit, un último disparo vuelva a escribir el
+   * borrador que submitModal acaba de borrar.
+   */
+  const enviado = useRef(false);
+  useEffect(() => {
+    if (enviado.current) return;
+    escribirBorradores(
+      conBorrador(
+        leerBorradores(),
+        mesa,
+        currentRound,
+        { base, jugadores: playersData, dinamicos: dynamicData },
+        new Date()
+      )
+    );
+  }, [playersData, dynamicData, mesa, base, currentRound]);
   const [dynamicDataValid, setDynamicDataValid] = useState(true);
   const [additionalErrors, setAdditionalErrors] = useState<ErrorObject[]>([]);
 
@@ -239,6 +288,11 @@ const RankingModal = ({
       fillAdditionalError(errors);
       return;
     }
+
+    // La ronda pasa a playerScores: su borrador sobra. Sólo tras validar, para
+    // que un Submit rechazado no pierda lo escrito.
+    enviado.current = true;
+    escribirBorradores(sinBorrador(leerBorradores(), currentRound));
 
     submitRoundData(
       players.map((player) => {

@@ -10,11 +10,20 @@ import RawData from "./RawData";
 import ImportarRawData from "./ImportarRawData";
 import { formatRawData, type RawDataPartida } from "./formatoRawData";
 import {
+  esNivelPartida,
   NIVEL_MAXIMO,
   NIVEL_MINIMO,
   NIVELES_PARTIDA,
   siguienteNivelEntero,
 } from "./niveles";
+import {
+  baseDeRonda,
+  cerrado,
+  escribirBorradores,
+  firmaMesa,
+  leerBorradores,
+  rondaAReabrir,
+} from "../RankingModal/borrador";
 import {
   buildFilas,
   emparejarFilas,
@@ -365,7 +374,18 @@ const Ranking = () => {
   );
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
-  const [gameLevel, setGameLevel] = useState<number>(NIVEL_MINIMO);
+  /*
+   * En localStorage: el nivel es lo que va a `partidas.nivel`, y una recarga
+   * (el móvil en standby durante la partida) no puede cambiarlo por detrás.
+   * Un valor guardado que no sea una opción del desplegable (versión vieja,
+   * a mano) se trata como el mínimo: si no, el desplegable no marcaría ninguna
+   * opción y se guardaría un valor distinto del que se ve.
+   */
+  const [gameLevelGuardado, setGameLevel] = useLocalStorage<number>(
+    "gameLevel-v1",
+    NIVEL_MINIMO
+  );
+  const gameLevel = esNivelPartida(gameLevelGuardado) ? Number(gameLevelGuardado) : NIVEL_MINIMO;
   const [gameDescription, setGameDescription] = useLocalStorage<string>(
     "gameDescription-v1",
     ""
@@ -386,11 +406,15 @@ const Ranking = () => {
   /**
    * Si alguien ha tocado el desplegable de nivel a mano.
    *
-   * Existe para que el recálculo automático no le pise la elección. No se
-   * persiste a propósito: al recargar vuelve a false y el nivel se recalcula,
-   * que es justo lo que se quiere.
+   * Existe para que el recálculo automático no le pise la elección. Se guarda
+   * en localStorage junto con el nivel: antes no se persistía, y una recarga a
+   * mitad de partida devolvía el nivel al automático en silencio. Cambiar la
+   * mesa sigue poniéndolo a false.
    */
-  const [gameLevelElegidoAMano, setGameLevelElegidoAMano] = useState<boolean>(false);
+  const [gameLevelElegidoAMano, setGameLevelElegidoAMano] = useLocalStorage<boolean>(
+    "gameLevelElegidoAMano-v1",
+    false
+  );
   /**
    * La fecha que traía un Raw Data importado, o null si la partida es de hoy.
    *
@@ -825,12 +849,36 @@ const Ranking = () => {
     [setLastTorneoId]
   );
 
+  /*
+   * Tras una recarga (el móvil descartó la pestaña en standby), reabrir el
+   * modal que estaba abierto, con su borrador. Sólo al montar, y sólo si el
+   * borrador sigue siendo de esta mesa y de esta ronda (ver ../RankingModal/
+   * borrador.ts). Sin dependencias a propósito: más tarde, abrir y cerrar el
+   * modal es cosa del usuario.
+   */
+  useEffect(() => {
+    if (playerChoice.length < 5 || playerChoice.length > 10) return;
+    const ronda = rondaAReabrir(
+      leerBorradores(),
+      firmaMesa(playerChoice),
+      (r) => baseDeRonda(playerChoice, playerScores[r - 1], gameScores[r - 1]),
+      new Date()
+    );
+    if (ronda !== null && ronda >= 1 && ronda <= playerChoice.length) {
+      setCurrentRound(ronda);
+      setIsOpen(true);
+    }
+  }, []);
+
   function openModal(round: number) {
     setCurrentRound(round);
     setIsOpen(true);
   }
 
   function closeModal() {
+    // Cancel y clic fuera: el borrador de la ronda se conserva (reabrirla lo
+    // recupera), pero ya no se reabre solo al recargar.
+    escribirBorradores(cerrado(leerBorradores()));
     setCurrentRound(0);
     setIsOpen(false);
   }
@@ -1367,6 +1415,8 @@ const Ranking = () => {
           contentLabel="Round Modal"
         >
           <RankingModal
+            // Un montaje por ronda: el modal lee su borrador al montarse.
+            key={currentRound}
             personajes={personajes}
             nivel={gameLevel}
             players={playerChoice}
