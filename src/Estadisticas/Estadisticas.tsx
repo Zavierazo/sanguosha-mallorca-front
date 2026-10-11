@@ -202,6 +202,18 @@ const Estadisticas = () => {
     [filas]
   );
 
+  // Columnas fijas al desplazarse en horizontal (en el móvil la tabla no cabe).
+  //
+  // Invariante: el ancho de Pos (w-14) tiene que ser el `left` de Jugador
+  // (left-14). Si se cambia uno, cambiar el otro, o Jugador se monta sobre Pos
+  // o deja un hueco por el que se ve pasar el resto de la tabla.
+  //
+  // z-index: las celdas fijas del cuerpo van en z-20 y no en z-10 porque el
+  // número de BarraPorcentaje es `relative z-10`, y con el mismo z-index pinta
+  // encima la que va después en el DOM. La cabecera, z-30.
+  const fijaPos = "sticky left-0 w-14 min-w-14 max-w-14";
+  const fijaJugador = "sticky left-14 shadow-[inset_-1px_0_0_#cbd5e1]";
+
   const columnas = [
     { clave: "pos", texto: "Pos", ayuda: "Puesto en la clasificación" },
     { clave: "jugador", texto: "Jugador" },
@@ -303,7 +315,13 @@ const Estadisticas = () => {
                         key={c.clave}
                         scope="col"
                         title={c.ayuda}
-                        className="whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide"
+                        className={`whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide ${
+                          c.clave === "pos"
+                            ? `${fijaPos} z-30 bg-slate-800`
+                            : c.clave === "jugador"
+                              ? `${fijaJugador} z-30 bg-slate-800`
+                              : ""
+                        }`}
                       >
                         {c.texto}
                       </th>
@@ -311,17 +329,21 @@ const Estadisticas = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filas.map((f, i) => (
-                    <tr
-                      key={f.jugador}
-                      className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
-                    >
-                      <td className="px-3 py-1 text-right font-mono text-slate-500 tabular-nums">
+                  {filas.map((f, i) => {
+                    // Las celdas fijas necesitan el fondo de su fila: sticky no
+                    // lo hereda del <tr> y, sin él, se transparenta lo que pasa
+                    // por debajo.
+                    const fondoFila = i % 2 === 0 ? "bg-white" : "bg-slate-50";
+                    return (
+                    <tr key={f.jugador} className={fondoFila}>
+                      <td
+                        className={`${fijaPos} z-20 ${fondoFila} px-3 py-1 text-right font-mono text-slate-500 tabular-nums`}
+                      >
                         {f.pos}
                       </td>
                       <th
                         scope="row"
-                        className="whitespace-nowrap px-3 py-1 text-left font-semibold text-slate-800"
+                        className={`${fijaJugador} z-20 ${fondoFila} whitespace-nowrap px-3 py-1 text-left font-semibold text-slate-800`}
                       >
                         {f.jugador}
                       </th>
@@ -382,7 +404,8 @@ const Estadisticas = () => {
                         />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
