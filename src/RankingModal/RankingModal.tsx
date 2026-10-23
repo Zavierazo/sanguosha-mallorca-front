@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { crearRutaMesa } from "../Mesa/mesa";
 import "./RankingModal.css";
 import {
   baseDeRonda,
@@ -18,6 +19,11 @@ import { JsonSchema } from "@jsonforms/core";
 import { pointByNumberPlayers, PointsData, RoleConfig } from "./config";
 import { ErrorObject } from "ajv";
 import { GameScore, PlayerScore } from "../Ranking//Ranking";
+import {
+  filaExcelPersonajePorNivel,
+  reconciliarFilaPersonaje,
+  type PersonajeCatalogo,
+} from "../Ranking/personajes";
 import type { Personaje } from "../data";
 import {
   PersonajeControl,
@@ -30,6 +36,16 @@ const renderers = [
   ...materialRenderers,
   { tester: personajeControlTester, renderer: PersonajeControl },
 ];
+
+function igualesPorValor(
+  actual: Record<string, unknown>,
+  siguiente: Record<string, unknown>
+): boolean {
+  const claves = Object.keys({ ...actual, ...siguiente });
+  return claves.every((clave) =>
+    Object.is(actual[clave], siguiente[clave])
+  );
+}
 
 interface RankingModalProps {
   /** El catálogo, o null si no ha cargado: el campo sale deshabilitado. */
@@ -100,14 +116,63 @@ const RankingModal = ({
     return { mesa, base, borrador };
   });
 
+  const datosIniciales = borrador
+    ? { ...initialData, ...borrador.jugadores }
+    : initialData;
   const [playersData, setPlayersData] = useState(
-    () => (borrador ? { ...initialData, ...borrador.jugadores } : initialData) as typeof initialData
+    () => datosIniciales as typeof initialData
+  );
+  const [filasPersonaje, setFilasPersonaje] = useState<Record<string, number | null>>(
+    () => {
+      const filas: Record<string, number | null> = {};
+      for (let indice = 0; indice < players.length; indice += 1) {
+        const player = players[indice];
+        const nombre = datosIniciales[`${player}_personaje` as keyof typeof datosIniciales];
+        const filaGuardada = borrador?.filasPersonaje?.[player];
+        const filaGuardadaValida =
+          typeof nombre === "string" &&
+          personajes?.some(
+            (personaje) =>
+              personaje.filaExcel === filaGuardada &&
+              personaje.nombre.toLowerCase() === nombre.trim().toLowerCase()
+          );
+        filas[player] = filaGuardadaValida
+          ? filaGuardada ?? null
+          : filaExcelPersonajePorNivel(
+              personajes ?? [],
+              typeof nombre === "string" ? nombre : null,
+              nivel
+            );
+      }
+      return filas;
+    }
+  );
+  const filasPersonajeElegidas = useRef<Record<string, number | null>>({});
+  const cambiarFilaPersonaje = useCallback((player: string, fila: number | null) => {
+    filasPersonajeElegidas.current[player] = fila;
+    setFilasPersonaje((actuales) => ({ ...actuales, [player]: fila }));
+  }, []);
+  const personajesSelector = useMemo<PersonajeCatalogo[] | null>(
+    () =>
+      personajes?.map(({ nombre, nivel, dinastia, filaExcel }) => ({
+        nombre,
+        nivel,
+        dinastia,
+        filaExcel,
+      })) ?? null,
+    [personajes]
   );
   // Memorizado: un objeto nuevo en cada render haría que JsonForms volviera a
   // repartir el config a todos los controles en cada pulsación.
   const configJugadores = useMemo(
-    () => ({ generateId: true, personajes, nivel } satisfies ConfigPersonaje & { generateId: boolean }),
-    [personajes, nivel]
+    () => ({
+      generateId: true,
+      personajes: personajesSelector,
+      nivel,
+      filasSeleccionadas: filasPersonaje,
+      onCambiarFilaSeleccionada: cambiarFilaPersonaje,
+    } satisfies ConfigPersonaje & { generateId: boolean }),
+    [personajesSelector, nivel, filasPersonaje, cambiarFilaPersonaje]
   );
   const [playersDataValid, setPlayersDataValid] = useState(true);
   const [dynamicData, setDynamicData] = useState(() => {
@@ -120,6 +185,29 @@ const RankingModal = ({
     return (borrador ? { ...inicial, ...borrador.dinamicos } : inicial) as typeof inicial;
   });
 
+  useEffect(() => {
+    if (!personajes) return;
+    setFilasPersonaje((actuales) => {
+      let cambio = false;
+      const siguientes = { ...actuales };
+      for (const player of players) {
+        const nombre = playersData[`${player}_personaje` as keyof typeof playersData];
+        const filaSiguiente = reconciliarFilaPersonaje(
+          personajes,
+          typeof nombre === "string" ? nombre : null,
+          siguientes[player],
+          filasPersonajeElegidas.current[player],
+          nivel
+        );
+        if (filaSiguiente !== siguientes[player]) {
+          siguientes[player] = filaSiguiente;
+          cambio = true;
+        }
+      }
+      return cambio ? siguientes : actuales;
+    });
+  }, [personajes, playersData, players, nivel]);
+
   /*
    * Cada cambio se guarda. El primer disparo (al montar, sin que nadie haya
    * tocado nada) también escribe: es lo que marca la ronda como "abierta" para
@@ -131,20 +219,44 @@ const RankingModal = ({
   const enviado = useRef(false);
   useEffect(() => {
     if (enviado.current) return;
+    const filasGuardadas: Record<string, number> = {};
+    for (const player of players) {
+      const fila = filasPersonaje[player];
+      if (fila !== null && fila !== undefined) filasGuardadas[player] = fila;
+    }
     escribirBorradores(
       conBorrador(
         leerBorradores(),
         mesa,
         currentRound,
-        { base, jugadores: playersData, dinamicos: dynamicData },
+        {
+          base,
+          jugadores: playersData,
+          filasPersonaje: filasGuardadas,
+          dinamicos: dynamicData,
+        },
         new Date()
       )
     );
-  }, [playersData, dynamicData, mesa, base, currentRound]);
+  }, [playersData, filasPersonaje, dynamicData, mesa, base, currentRound, players]);
   const [dynamicDataValid, setDynamicDataValid] = useState(true);
   const [additionalErrors, setAdditionalErrors] = useState<ErrorObject[]>([]);
 
-  const playerRoleSchema = {
+  function compartirMesaEnTelegram() {
+    const filasPersonajes = players.map((player) => {
+      return filasPersonaje[player] ?? null;
+    });
+    const baseUrl = new URL(
+      import.meta.env.BASE_URL,
+      window.location.origin
+    ).toString();
+    const enlace = crearRutaMesa(baseUrl, players, filasPersonajes);
+    const enlaceTelegram = new URL("https://t.me/share/url");
+    enlaceTelegram.searchParams.set("url", enlace);
+    window.open(enlaceTelegram.toString(), "_blank", "noopener,noreferrer");
+  }
+
+  const playerRoleSchema = useMemo(() => ({
     type: "object",
     properties: players.reduce(
       (acc, player) => {
@@ -172,9 +284,9 @@ const RankingModal = ({
       }
     ),
     required: players.map((player) => `${player}_role`),
-  } as JsonSchema;
+  } as JsonSchema), [players]);
 
-  const playerRoleUISchema = {
+  const playerRoleUISchema = useMemo(() => ({
     type: "VerticalLayout",
     elements: [
       {
@@ -227,7 +339,7 @@ const RankingModal = ({
         ])
         .flat(),
     ],
-  };
+  }), [players]);
 
   let roleConfig: RoleConfig;
   const roleTable = pointByNumberPlayers[players.length];
@@ -499,7 +611,9 @@ const RankingModal = ({
           cells={materialCells}
           onChange={({ errors, data }) => {
             setPlayersDataValid((errors?.length ?? 0) === 0);
-            setPlayersData(data);
+            setPlayersData((actual) =>
+              igualesPorValor(actual, data) ? actual : data
+            );
           }}
           config={configJugadores}
         />
@@ -511,7 +625,9 @@ const RankingModal = ({
           cells={materialCells}
           onChange={({ errors, data }) => {
             setDynamicDataValid((errors?.length ?? 0) === 0);
-            setDynamicData(data);
+            setDynamicData((actual) =>
+              igualesPorValor(actual, data) ? actual : data
+            );
           }}
           config={{
             generateId: true,
@@ -533,13 +649,21 @@ const RankingModal = ({
             ))}
           </div>
         )}
-        <div className="flex justify-center gap-5">
+        <div className="flex flex-wrap justify-center gap-3 sm:gap-5">
           <button
             type="button"
             className="px-4 py-2 text-xl font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
             onClick={() => submitModal()}
           >
             Submit
+          </button>
+          <button
+            type="button"
+            className="px-4 py-2 text-lg font-medium text-center text-white bg-sky-500 rounded-lg hover:bg-sky-600 focus:ring-4 focus:outline-none focus:ring-sky-300"
+            onClick={compartirMesaEnTelegram}
+            title="Abre Telegram con el enlace a esta mesa"
+          >
+            ✈️ Telegram
           </button>
           <button
             type="button"

@@ -334,21 +334,21 @@ const Ranking = () => {
   }, [refrescarDatos]);
 
   /**
-   * El catálogo de personajes, o null mientras no haya llegado.
+   * El catálogo de characters.xlsx, o null mientras no haya llegado.
    *
    * Va aparte del `Promise.all` de arriba a propósito: es un dato opcional (el
    * personaje se puede dejar en blanco), y si su lectura falla no tiene que
    * tumbar niveles y torneos, que sí son necesarios para guardar. Sin catálogo
    * el campo del modal sale deshabilitado y lo dice.
    *
-   * Se lee una vez por carga de página: sólo cambia cuando alguien recarga la
-   * tabla desde el editor SQL, y eso no pasa en mitad de una sesión de juego.
+   * Se lee una vez por carga de página, ya que el archivo es estático durante
+   * una sesión de juego.
    */
   const [personajes, setPersonajes] = useState<Personaje[] | null>(null);
   useEffect(() => {
     let cancelado = false;
-    datos
-      .fetchPersonajes()
+    import("../data/personajes")
+      .then(({ cargarPersonajes }) => cargarPersonajes())
       .then((lista) => {
         if (!cancelado) setPersonajes(lista);
       })

@@ -25,7 +25,11 @@ const mas = (ms: number) => new Date(T0.getTime() + ms);
 const mesa = ["Arcan", "Miquel", "AliG", "Zatara", "Danu"];
 const MESA = firmaMesa(mesa);
 const BASE_VACIA = baseDeRonda(mesa, undefined, undefined);
-const datos = { jugadores: { Arcan_personaje: "Cáo Cāo" }, dinamicos: {} };
+const datos = {
+  jugadores: { Arcan_personaje: "Cáo Cāo" },
+  filasPersonaje: { Arcan: 107 },
+  dinamicos: {},
+};
 
 const conUno = () => conBorrador(null, MESA, 2, { base: BASE_VACIA, ...datos }, T0);
 
@@ -102,6 +106,16 @@ describe("ciclo de vida", () => {
   it("sobrevive al viaje por localStorage", () => {
     const e = parsearEstado(JSON.stringify(conUno()));
     expect(borradorDeRonda(e, MESA, 2, BASE_VACIA, T0)).not.toBeNull();
+    expect(borradorDeRonda(e, MESA, 2, BASE_VACIA, T0)?.filasPersonaje).toEqual({
+      Arcan: 107,
+    });
+  });
+
+  it("sigue leyendo borradores antiguos sin fila de variante", () => {
+    const estadoAntiguo = conUno();
+    delete estadoAntiguo.rondas["2"].filasPersonaje;
+    const e = parsearEstado(JSON.stringify(estadoAntiguo));
+    expect(borradorDeRonda(e, MESA, 2, BASE_VACIA, T0)?.filasPersonaje).toBeUndefined();
   });
 });
 

@@ -5,6 +5,7 @@ import Estadisticas from './Estadisticas';
 import NivelJugadores from './Estadisticas/NivelJugadores';
 import PartidasJugadas from './Estadisticas/PartidasJugadas/PartidasJugadas';
 import Home from './Home';
+import Mesa from './Mesa/MesaPage';
 import Ranking from './Ranking';
 import Torneos from './Torneos';
 
@@ -24,6 +25,7 @@ function App() {
       <Routes>
         <Route path='/' element={<Home />} />
         <Route path='/ranking' element={<Ranking />} />
+        <Route path='/mesa' element={<Mesa />} />
         <Route path='/estadisticas' element={<Estadisticas />} />
         <Route path='/estadisticas/nivel-jugadores' element={<NivelJugadores />} />
         <Route path='/estadisticas/partidas' element={<PartidasJugadas />} />

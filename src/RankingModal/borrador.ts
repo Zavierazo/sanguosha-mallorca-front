@@ -38,6 +38,8 @@ export interface BorradorRonda {
   base: string;
   /** El `data` del formulario de jugadores (roles, vivos, personajes, ganador). */
   jugadores: Record<string, unknown>;
+  /** Fila exacta de characters.xlsx elegida por jugador, si está disponible. */
+  filasPersonaje?: Record<string, number>;
   /** El `data` del formulario de datos adicionales. */
   dinamicos: Record<string, unknown>;
   /** ISO. */
@@ -89,6 +91,19 @@ export function baseDeRonda(
 const esObjeto = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+function leerFilasPersonaje(valor: unknown): Record<string, number> | undefined {
+  if (!esObjeto(valor)) return undefined;
+  const filas: Record<string, number> = {};
+  for (const [jugador, fila] of Object.entries(valor)) {
+    if (fila === null) continue;
+    if (typeof fila !== "number" || !Number.isSafeInteger(fila) || fila <= 0) {
+      return undefined;
+    }
+    filas[jugador] = fila;
+  }
+  return filas;
+}
+
 /**
  * Lee el texto de localStorage. Ante cualquier duda (JSON roto, otra versión,
  * forma inesperada) devuelve null: un borrador dudoso se tira, no se aplica.
@@ -114,9 +129,11 @@ export function parsearEstado(texto: string | null): EstadoBorradores | null {
       esObjeto(b.dinamicos) &&
       typeof b.actualizado === "string"
     ) {
+      const filasPersonaje = leerFilasPersonaje(b.filasPersonaje);
       rondas[ronda] = {
         base: b.base,
         jugadores: b.jugadores,
+        ...(filasPersonaje ? { filasPersonaje } : {}),
         dinamicos: b.dinamicos,
         actualizado: b.actualizado,
       };
