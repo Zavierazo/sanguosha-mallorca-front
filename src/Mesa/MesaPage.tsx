@@ -289,8 +289,12 @@ export default function MesaPage() {
                   </div>
 
                   <nav className="ficha-navegacion" aria-label="Información adicional">
-                    <button type="button" onClick={() => setPanelFicha("faq")}>FAQ</button>
-                    <button type="button" onClick={() => setPanelFicha("lore")}>LORE</button>
+                    {ficha.faq?.trim() && (
+                      <button type="button" onClick={() => setPanelFicha("faq")}>FAQ</button>
+                    )}
+                    {ficha.lore?.trim() && (
+                      <button type="button" onClick={() => setPanelFicha("lore")}>LORE</button>
+                    )}
                     <button type="button" onClick={() => setPanelFicha("metadata")}>Metadata</button>
                   </nav>
                 </div>
