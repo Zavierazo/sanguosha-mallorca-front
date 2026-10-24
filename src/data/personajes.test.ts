@@ -38,6 +38,7 @@ describe("parsearCatalogoPersonajes", () => {
 
     expect(personaje).toMatchObject({
       nombre: "Ji Miao & Ji Mu",
+      nombreDorso: "吉邈吉穆",
       hp: "5",
       skills: expect.stringContaining("\n"),
       faq: "Flanking Attack: X stacks.",

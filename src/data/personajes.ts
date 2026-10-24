@@ -39,6 +39,7 @@ export async function parsearCatalogoPersonajes(
     expansion: encabezados.indexOf("Expansión"),
     version: encabezados.indexOf("Version"),
     dinastia: encabezados.indexOf("Dinastia (*)"),
+    nombreDorso: encabezados.indexOf("NombreDorso"),
   } as const;
   const faltanColumnasFicha = Object.entries(columnasFicha)
     .filter(([, indice]) => indice < 0)
@@ -131,6 +132,7 @@ export async function parsearCatalogoPersonajes(
 
     personajes.push({
       nombre: nombre.trim(),
+      nombreDorso: textoCelda(columnasFicha.nombreDorso),
       nivel,
       dinastia: textoCelda(columnasFicha.dinastia),
       filaExcel: indice + 2,

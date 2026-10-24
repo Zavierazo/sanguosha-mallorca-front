@@ -83,6 +83,7 @@ export type TournamentRounds = Map<number, Map<string, RoundEntry>>;
  */
 export interface Personaje {
   nombre: string;
+  nombreDorso?: string | null;
   /** Entero de 1 a 15, o 6.5. */
   nivel: number;
   dinastia?: string | null;

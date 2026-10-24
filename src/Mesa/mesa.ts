@@ -9,9 +9,16 @@ const MAX_JUGADORES = 10;
 export function posicionAsiento(
   indice: number,
   total: number,
-  anchoAsiento = 16
+  anchoAsiento = 16,
+  indicePerspectiva: number | null = null
 ): { x: number; y: number } {
-  const angulo = -Math.PI / 2 - (2 * Math.PI * indice) / total;
+  const indiceRelativo =
+    indicePerspectiva === null
+      ? indice
+      : (indice - indicePerspectiva + total) % total;
+  const angulo =
+    (indicePerspectiva === null ? -Math.PI / 2 : Math.PI / 2) -
+    (2 * Math.PI * indiceRelativo) / total;
   const radioHorizontal = Math.min(42, 48 - anchoAsiento / 2);
   return {
     x: 50 + radioHorizontal * Math.cos(angulo),
@@ -22,11 +29,13 @@ export function posicionAsiento(
 export function crearRutaMesa(
   baseUrl: string,
   jugadores: string[],
-  filasPersonajes: (number | null)[]
+  filasPersonajes: (number | null)[],
+  rey?: string | null
 ): string {
   const url = new URL("mesa", baseUrl);
   url.searchParams.set("jugadores", JSON.stringify(jugadores));
   url.searchParams.set("personajes", JSON.stringify(filasPersonajes));
+  if (rey) url.searchParams.set("rey", rey);
   return url.toString();
 }
 
@@ -73,10 +82,21 @@ export function leerAsientosMesa(search: string): AsientoMesa[] | null {
       return null;
     }
 
-    return jugadores.map((jugador, indice) => ({
+    const asientos = jugadores.map((jugador, indice) => ({
       jugadorId: jugador,
       filaPersonaje: filasPersonajes[indice],
     }));
+    const rey = parametros.get("rey");
+    const indiceRey = rey === null ? -1 : jugadores.indexOf(rey);
+    const reyUnico =
+      rey !== null &&
+      indiceRey >= 0 &&
+      jugadores.indexOf(rey, indiceRey + 1) === -1;
+    if (!reyUnico) {
+      return asientos;
+    }
+
+    return [...asientos.slice(indiceRey), ...asientos.slice(0, indiceRey)];
   } catch {
     return null;
   }

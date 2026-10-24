@@ -9,9 +9,10 @@ import {
   posicionAsiento,
   quitarFilaFicha,
 } from "./mesa";
+import { crearEnlacesChinos } from "./enlacesChinos";
 import "./Mesa.css";
 
-type PanelFicha = "faq" | "lore" | "metadata";
+type PanelFicha = "faq" | "lore" | "metadata" | "chino";
 
 function estilosFragmento(fragmento: PersonajeFragmentoTexto): CSSProperties {
   const estilo: CSSProperties = {};
@@ -80,6 +81,9 @@ export default function MesaPage() {
   const [personajes, setPersonajes] = useState<Personaje[] | null>(null);
   const [errorCarga, setErrorCarga] = useState("");
   const [panelFicha, setPanelFicha] = useState<PanelFicha | null>(null);
+  const [menuInformacionVisible, setMenuInformacionVisible] = useState(false);
+  const [jugadorPerspectiva, setJugadorPerspectiva] = useState<string | null>(null);
+  const [selectorPerspectivaAbierto, setSelectorPerspectivaAbierto] = useState(false);
 
   useEffect(() => {
     let activa = true;
@@ -109,6 +113,11 @@ export default function MesaPage() {
   const ficha = filaSeleccionada === null
     ? undefined
     : personajesPorFila.get(filaSeleccionada);
+  const indicePerspectiva = jugadorPerspectiva === null
+    ? null
+    : asientosDesdeUrl?.findIndex(
+        ({ jugadorId }) => jugadorId === jugadorPerspectiva
+      ) ?? -1;
 
   const volverAMesa = useCallback(() => {
     setPanelFicha(null);
@@ -151,7 +160,17 @@ export default function MesaPage() {
 
   useEffect(() => {
     setPanelFicha(null);
+    setMenuInformacionVisible(false);
   }, [filaSeleccionada]);
+
+  useEffect(() => {
+    if (!selectorPerspectivaAbierto) return;
+    const cerrarConEscape = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") setSelectorPerspectivaAbierto(false);
+    };
+    window.addEventListener("keydown", cerrarConEscape);
+    return () => window.removeEventListener("keydown", cerrarConEscape);
+  }, [selectorPerspectivaAbierto]);
 
   if (!asientosDesdeUrl && filaSeleccionada === null) {
     return (
@@ -174,6 +193,55 @@ export default function MesaPage() {
       {filaSeleccionada === null ? (
         <section className="mesa-board" aria-label="Jugadores sentados alrededor de la mesa">
           <div className="mesa-superficie" aria-hidden="true" />
+          <div className="mesa-selector-perspectiva">
+            <button
+              type="button"
+              className="mesa-selector-perspectiva-boton"
+              aria-label="Elegir perspectiva de la mesa"
+              aria-expanded={selectorPerspectivaAbierto}
+              aria-controls="mesa-selector-jugadores"
+              onClick={() => setSelectorPerspectivaAbierto((abierto) => !abierto)}
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                width="24"
+                height="24"
+                fill="none"
+              >
+                <path
+                  d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                />
+                <circle cx="12" cy="12" r="2.8" stroke="currentColor" strokeWidth="1.8" />
+              </svg>
+            </button>
+            {selectorPerspectivaAbierto && (
+              <div
+                id="mesa-selector-jugadores"
+                className="mesa-selector-perspectiva-menu"
+                role="group"
+                aria-label="Elegir jugador para orientar la mesa"
+              >
+                {asientosDesdeUrl?.map((asiento) => (
+                  <button
+                    type="button"
+                    className="mesa-selector-jugador"
+                    key={asiento.jugadorId}
+                    aria-pressed={jugadorPerspectiva === asiento.jugadorId}
+                    onClick={() => {
+                      setJugadorPerspectiva(asiento.jugadorId);
+                      setSelectorPerspectivaAbierto(false);
+                    }}
+                  >
+                    {asiento.jugadorId}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {asientosDesdeUrl?.map((asiento, indice) => {
             const anchoAsiento = Math.min(
               30,
@@ -182,7 +250,10 @@ export default function MesaPage() {
             const { x, y } = posicionAsiento(
               indice,
               totalJugadores,
-              anchoAsiento
+              anchoAsiento,
+              indicePerspectiva === null || indicePerspectiva < 0
+                ? null
+                : indicePerspectiva
             );
             const personaje = asiento.filaPersonaje
               ? personajesPorFila.get(asiento.filaPersonaje)
@@ -248,15 +319,19 @@ export default function MesaPage() {
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                className="ficha-volver"
-                autoFocus
-                onClick={volverAMesa}
-                aria-label="Volver a la mesa"
-              >
-                ← Mesa
-              </button>
+              {ficha && (
+                <button
+                  type="button"
+                  className="ficha-info-toggle"
+                  aria-expanded={menuInformacionVisible}
+                  aria-controls="ficha-navegacion"
+                  onClick={() =>
+                    setMenuInformacionVisible((visible) => !visible)
+                  }
+                >
+                  {menuInformacionVisible ? "Ocultar información" : "Ver información"}
+                </button>
+              )}
             </header>
 
             {personajes === null ? (
@@ -288,7 +363,12 @@ export default function MesaPage() {
                     )}
                   </div>
 
-                  <nav className="ficha-navegacion" aria-label="Información adicional">
+                  <nav
+                    id="ficha-navegacion"
+                    className="ficha-navegacion"
+                    aria-label="Información adicional"
+                    hidden={!menuInformacionVisible}
+                  >
                     {ficha.faq?.trim() && (
                       <button type="button" onClick={() => setPanelFicha("faq")}>FAQ</button>
                     )}
@@ -296,6 +376,9 @@ export default function MesaPage() {
                       <button type="button" onClick={() => setPanelFicha("lore")}>LORE</button>
                     )}
                     <button type="button" onClick={() => setPanelFicha("metadata")}>Metadata</button>
+                    {ficha.nombreDorso?.trim() && (
+                      <button type="button" onClick={() => setPanelFicha("chino")}>Chino</button>
+                    )}
                   </nav>
                 </div>
 
@@ -304,14 +387,6 @@ export default function MesaPage() {
                     <header className="ficha-panel-cabecera">
                       <button type="button" onClick={() => setPanelFicha(null)}>
                         ← <span>Volver a la ficha</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="ficha-cerrar"
-                        onClick={volverAMesa}
-                        aria-label="Volver a la mesa"
-                      >
-                        ×
                       </button>
                     </header>
                     <div className="ficha-panel-contenido">
@@ -344,6 +419,27 @@ export default function MesaPage() {
                             <dt>Versión</dt>
                             <dd>{ficha.version || "—"}</dd>
                           </dl>
+                        </>
+                      )}
+                      {panelFicha === "chino" && (
+                        <>
+                          <h2>Chino</h2>
+                          <ul className="ficha-enlaces-chinos">
+                            {crearEnlacesChinos(
+                              ficha.nombreDorso,
+                              ficha.servidor
+                            ).map((enlace) => (
+                              <li key={enlace.texto}>
+                                <a
+                                  href={enlace.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  {enlace.texto}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
                         </>
                       )}
                     </div>

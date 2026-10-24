@@ -56,6 +56,42 @@ describe("enlace de mesa", () => {
       .toEqual([701, 207, null, null, null]);
   });
 
+  it("rota el orden para colocar al rey primero y conserva sus personajes", () => {
+    const url = crearRutaMesa(
+      "https://ejemplo.test/",
+      ["A", "B", "C", "D", "E"],
+      [10, 20, 30, 40, 50],
+      "C"
+    );
+
+    expect(new URL(url).searchParams.get("rey")).toBe("C");
+    expect(leerAsientosMesa(new URL(url).search)).toEqual([
+      { jugadorId: "C", filaPersonaje: 30 },
+      { jugadorId: "D", filaPersonaje: 40 },
+      { jugadorId: "E", filaPersonaje: 50 },
+      { jugadorId: "A", filaPersonaje: 10 },
+      { jugadorId: "B", filaPersonaje: 20 },
+    ]);
+  });
+
+  it("mantiene el orden original si el rey de la URL no es único o no está en la mesa", () => {
+    const url = crearRutaMesa(
+      "https://ejemplo.test/",
+      ["A", "B", "C", "D", "E"],
+      [10, 20, 30, 40, 50]
+    );
+    const parametros = new URL(url).searchParams;
+
+    parametros.set("rey", "desconocido");
+    expect(leerAsientosMesa(`?${parametros.toString()}`)?.[0].jugadorId).toBe("A");
+
+    parametros.set("jugadores", JSON.stringify(["A", "B", "C", "D", "A"]));
+    parametros.set("personajes", JSON.stringify([10, 20, 30, 40, 50]));
+    parametros.set("rey", "A");
+    expect(leerAsientosMesa(`?${parametros.toString()}`)?.map(({ jugadorId }) => jugadorId))
+      .toEqual(["A", "B", "C", "D", "A"]);
+  });
+
   it("coloca al primer jugador arriba y continúa en sentido antihorario", () => {
     const primero = posicionAsiento(0, 10);
     const segundo = posicionAsiento(1, 10);
@@ -69,6 +105,18 @@ describe("enlace de mesa", () => {
     expect(tercero.x).toBeLessThan(segundo.x);
     expect(tercero.y).toBeGreaterThan(segundo.y);
     expect(opuesto.y).toBeCloseTo(90);
+  });
+
+  it("coloca al jugador elegido abajo, al siguiente a su derecha y al anterior a su izquierda", () => {
+    const total = 5;
+    const abajo = posicionAsiento(2, total, 16, 2);
+    const derecha = posicionAsiento(3, total, 16, 2);
+    const izquierda = posicionAsiento(1, total, 16, 2);
+
+    expect(abajo.x).toBeCloseTo(50);
+    expect(abajo.y).toBeCloseTo(90);
+    expect(derecha.x).toBeGreaterThan(50);
+    expect(izquierda.x).toBeLessThan(50);
   });
 
   it("deja margen para los asientos más anchos de una mesa de cinco", () => {

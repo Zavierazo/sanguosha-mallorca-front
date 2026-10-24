@@ -250,7 +250,12 @@ const RankingModal = ({
       import.meta.env.BASE_URL,
       window.location.origin
     ).toString();
-    const enlace = crearRutaMesa(baseUrl, players, filasPersonajes);
+    const reyes = players.filter(
+      (player) =>
+        playersData[`${player}_role` as keyof typeof playersData] === "King"
+    );
+    const rey = reyes.length === 1 ? reyes[0] : null;
+    const enlace = crearRutaMesa(baseUrl, players, filasPersonajes, rey);
     const enlaceTelegram = new URL("https://t.me/share/url");
     enlaceTelegram.searchParams.set("url", enlace);
     window.open(enlaceTelegram.toString(), "_blank", "noopener,noreferrer");
