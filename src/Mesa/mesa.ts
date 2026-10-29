@@ -52,6 +52,36 @@ export function leerFilaFicha(search: string): number | null {
   return Number.isSafeInteger(fila) && fila > 0 ? fila : null;
 }
 
+/**
+ * Dada la mesa ya orientada (asientos en orden de juego) y la fila de la ficha
+ * abierta, devuelve la `filaPersonaje` del siguiente asiento navegable en orden
+ * circular, saltando los asientos sin personaje (`filaPersonaje === null`).
+ *
+ * El punto de partida es el primer asiento cuyo `filaPersonaje` coincide con
+ * `filaActual`. El siguiente asiento puede tener la misma fila (dos jugadores
+ * con el mismo personaje): es un salto válido a otra posición de la mesa. Sólo
+ * se devuelve `null` cuando no hay ningún OTRO asiento navegable al que ir: la
+ * fila actual no está en la mesa, o es el único asiento con personaje.
+ */
+export function siguienteFilaFicha(
+  asientos: AsientoMesa[],
+  filaActual: number
+): number | null {
+  const total = asientos.length;
+  const indicePartida = asientos.findIndex(
+    (asiento) => asiento.filaPersonaje === filaActual
+  );
+  if (indicePartida < 0) return null;
+
+  for (let paso = 1; paso <= total; paso += 1) {
+    const indice = (indicePartida + paso) % total;
+    if (indice === indicePartida) break;
+    const fila = asientos[indice].filaPersonaje;
+    if (fila !== null) return fila;
+  }
+  return null;
+}
+
 export function quitarFilaFicha(search: string): string {
   const parametros = new URLSearchParams(search);
   parametros.delete("ficha");

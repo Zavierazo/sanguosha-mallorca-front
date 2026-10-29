@@ -253,7 +253,16 @@
   overflow-wrap: anywhere;
 }
 
-.ficha-info-toggle {
+.ficha-acciones {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.ficha-info-toggle,
+.ficha-boton-siguiente {
   display: inline-flex;
   min-height: 2.75rem;
   flex: none;
@@ -271,6 +280,11 @@
   font-weight: 650;
   line-height: 1.15;
   text-align: center;
+}
+
+.ficha-boton-siguiente:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
 }
 
 .ficha-cuerpo {
@@ -322,6 +336,10 @@
   line-height: 1.55;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.ficha-faq-texto {
+  text-align: left;
 }
 
 .ficha-seccion .ficha-skills {

@@ -185,6 +185,33 @@ const RankingModal = ({
     return (borrador ? { ...inicial, ...borrador.dinamicos } : inicial) as typeof inicial;
   });
 
+  /*
+   * El modal mide lo que de verdad se ve (ver .rm-content en RankingModal.css).
+   * Firefox para Android pinta su barra encima del fondo del viewport de
+   * `position: fixed`, y con `bottom: 0` el pie con Submit/Cancel quedaba
+   * debajo, imposible de pulsar. visualViewport descuenta esa barra (y el
+   * teclado); `offsetTop` cubre el caso en que el navegador desplaza la vista
+   * al abrirse el teclado. En escritorio la media query ignora las variables.
+   */
+  useEffect(() => {
+    const vista = window.visualViewport;
+    if (!vista) return;
+    const raiz = document.documentElement;
+    const actualizar = () => {
+      raiz.style.setProperty("--rm-alto-visible", `${vista.height}px`);
+      raiz.style.setProperty("--rm-arriba-visible", `${vista.offsetTop}px`);
+    };
+    actualizar();
+    vista.addEventListener("resize", actualizar);
+    vista.addEventListener("scroll", actualizar);
+    return () => {
+      vista.removeEventListener("resize", actualizar);
+      vista.removeEventListener("scroll", actualizar);
+      raiz.style.removeProperty("--rm-alto-visible");
+      raiz.style.removeProperty("--rm-arriba-visible");
+    };
+  }, []);
+
   useEffect(() => {
     if (!personajes) return;
     setFilasPersonaje((actuales) => {

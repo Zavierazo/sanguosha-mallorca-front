@@ -25,9 +25,21 @@
   justify-content: center;
 }
 
+/*
+ * En el móvil NO se usa `inset: 0` (o sea bottom: 0). Firefox para Android
+ * extiende el viewport de `position: fixed` por debajo de su barra de
+ * herramientas (que puede ir abajo), y como el body tiene overflow: hidden la
+ * barra nunca se esconde: el pie quedaba debajo, se veía su borde y no se
+ * podía pulsar. La altura sale de --rm-alto-visible, que RankingModal.tsx
+ * rellena con window.visualViewport (lo que de verdad se ve). Sin JS ni
+ * visualViewport, 100% del viewport, que es lo que había antes.
+ */
 .rm-content {
   position: fixed;
-  inset: 0;
+  top: var(--rm-arriba-visible, 0);
+  left: 0;
+  right: 0;
+  height: var(--rm-alto-visible, 100%);
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -44,6 +56,7 @@ body.ReactModal__Body--open {
   .rm-content {
     position: relative;
     inset: auto;
+    height: auto;
     width: calc(100% - 2rem);
     max-width: 760px;
     max-height: 90vh;

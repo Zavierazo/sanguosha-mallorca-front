@@ -8,6 +8,7 @@ import {
   leerFilaFicha,
   posicionAsiento,
   quitarFilaFicha,
+  siguienteFilaFicha,
 } from "./mesa";
 import { crearEnlacesChinos } from "./enlacesChinos";
 import "./Mesa.css";
@@ -118,6 +119,24 @@ export default function MesaPage() {
     : asientosDesdeUrl?.findIndex(
         ({ jugadorId }) => jugadorId === jugadorPerspectiva
       ) ?? -1;
+  const filaSiguiente = useMemo(
+    () =>
+      asientosDesdeUrl && filaSeleccionada !== null
+        ? siguienteFilaFicha(asientosDesdeUrl, filaSeleccionada)
+        : null,
+    [asientosDesdeUrl, filaSeleccionada]
+  );
+
+  const irAlSiguientePersonaje = useCallback(() => {
+    if (filaSiguiente === null) return;
+    navigate(
+      {
+        pathname: location.pathname,
+        search: crearSearchFicha(location.search, filaSiguiente),
+      },
+      { replace: true, state: { desdeMesa: true } }
+    );
+  }, [filaSiguiente, location.pathname, location.search, navigate]);
 
   const volverAMesa = useCallback(() => {
     setPanelFicha(null);
@@ -320,17 +339,30 @@ export default function MesaPage() {
                 )}
               </div>
               {ficha && (
-                <button
-                  type="button"
-                  className="ficha-info-toggle"
-                  aria-expanded={menuInformacionVisible}
-                  aria-controls="ficha-navegacion"
-                  onClick={() =>
-                    setMenuInformacionVisible((visible) => !visible)
-                  }
-                >
-                  {menuInformacionVisible ? "Ocultar información" : "Ver información"}
-                </button>
+                <div className="ficha-acciones">
+                  <button
+                    type="button"
+                    className="ficha-info-toggle"
+                    aria-expanded={menuInformacionVisible}
+                    aria-controls="ficha-navegacion"
+                    onClick={() =>
+                      setMenuInformacionVisible((visible) => !visible)
+                    }
+                  >
+                    {menuInformacionVisible ? "Ocultar información" : "Ver información"}
+                  </button>
+                  {filaSiguiente !== null && (
+                    <button
+                      type="button"
+                      className="ficha-boton-siguiente"
+                      aria-label="Siguiente personaje"
+                      onClick={irAlSiguientePersonaje}
+                    >
+                      Siguiente
+                      <span aria-hidden="true"> →</span>
+                    </button>
+                  )}
+                </div>
               )}
             </header>
 
@@ -393,7 +425,7 @@ export default function MesaPage() {
                       {panelFicha === "faq" && (
                         <>
                           <h2>FAQ</h2>
-                          <p>
+                          <p className="ficha-faq-texto">
                             {renderTextoExcel(ficha.faq, ficha.faqRichText) ||
                               "Sin información disponible."}
                           </p>

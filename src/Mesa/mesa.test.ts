@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AsientoMesa } from "./mesa";
 import {
   crearRutaMesa,
   crearSearchFicha,
@@ -6,6 +7,7 @@ import {
   leerFilaFicha,
   posicionAsiento,
   quitarFilaFicha,
+  siguienteFilaFicha,
 } from "./mesa";
 
 describe("enlace de mesa", () => {
@@ -123,5 +125,45 @@ describe("enlace de mesa", () => {
     const asientoIzquierdo = posicionAsiento(1, 5, 28.5);
 
     expect(asientoIzquierdo.x).toBeGreaterThan(28.5 / 2);
+  });
+});
+
+describe("siguienteFilaFicha (navegación circular entre personajes de la mesa)", () => {
+  const mesa = (filas: (number | null)[]): AsientoMesa[] =>
+    filas.map((filaPersonaje, indice) => ({
+      jugadorId: `J${indice}`,
+      filaPersonaje,
+    }));
+
+  it("avanza al asiento siguiente en el orden de la mesa", () => {
+    expect(siguienteFilaFicha(mesa([10, 20, 30, 40, 50]), 20)).toBe(30);
+  });
+
+  it("vuelve al primero cuando está en el último (circular)", () => {
+    expect(siguienteFilaFicha(mesa([10, 20, 30, 40, 50]), 50)).toBe(10);
+  });
+
+  it("salta los asientos sin personaje (filaPersonaje null)", () => {
+    expect(siguienteFilaFicha(mesa([10, null, null, 40, 50]), 10)).toBe(40);
+  });
+
+  it("salta nulos también al dar la vuelta circular", () => {
+    expect(siguienteFilaFicha(mesa([10, 20, null, null, 50]), 50)).toBe(10);
+  });
+
+  it("devuelve null cuando sólo hay un asiento con personaje", () => {
+    // Invariante: sin otro personaje al que ir, no se renderiza el botón.
+    expect(siguienteFilaFicha(mesa([null, 20, null, null, null]), 20)).toBeNull();
+  });
+
+  it("devuelve null cuando la fila actual no está en la mesa", () => {
+    expect(siguienteFilaFicha(mesa([10, 20, 30, 40, 50]), 999)).toBeNull();
+  });
+
+  it("salta al otro asiento cuando el personaje está duplicado y no se queda clavado", () => {
+    // Dos jugadores con la fila 20: partir del primero debe llevar al segundo,
+    // no devolver la propia fila como si no hubiera a dónde ir.
+    const siguiente = siguienteFilaFicha(mesa([20, 20, null, null, null]), 20);
+    expect(siguiente).toBe(20);
   });
 });
