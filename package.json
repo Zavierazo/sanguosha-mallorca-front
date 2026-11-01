@@ -49,6 +49,10 @@
       "last 1 safari version"
     ]
   },
+  "overrides-comment": "minimatch ^11.0.3 cierra GHSA-g3hv-75wg-m249 (DoS moderado). Lo arrastran eslint/typescript-eslint/eslint-plugin-react (solo devDeps, no llega al bundle: `npm audit --omit=dev` da 0). Esos paquetes aun declaran minimatch ^3/^10 y no hay major que acepte >=11.0.1 en rango. La API de minimatch es estable desde la v3; comprobado: npm audit 0, lint/test/build/tsc OK. Quitar cuando los consumidores suban su rango.",
+  "overrides": {
+    "minimatch": "^11.0.3"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^24.19.0",

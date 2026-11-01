@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildFilas, emparejarFilas } from "./crearTorneo";
+import {
+  buildFilas,
+  datosDePartidas,
+  emparejarFilas,
+  muertosDeFilas,
+} from "./crearTorneo";
 import type { PlayerScore } from "../Ranking/Ranking";
 
 /**
@@ -288,5 +293,112 @@ describe("personaje: viaja con su jugador hasta el payload", () => {
         personaje: null,
       },
     ]);
+  });
+});
+
+describe("datosDePartidas: la lista `partidas` del payload", () => {
+  /*
+   * crear_torneo() (script 23) exige una entrada de `partidas` por cada
+   * num_partida de `filas`, exactamente. Si la lista saliera de todas las rondas
+   * de la pantalla en vez de las filas, una ronda importada con Continue
+   * Tournament se reenviaría y la base de datos rechazaría el lote entero.
+   */
+  const jugadores = ["Arcan", "Miquel"];
+
+  it("sólo incluye las rondas que tienen filas, sin las importadas", () => {
+    const rondas: PlayerScore[][] = [
+      [puntuacion({ role: "R", imported: true }), puntuacion({ role: "V", imported: true })],
+      [puntuacion({ role: "R" }), puntuacion({ role: "V" })],
+      [puntuacion({ role: null }), puntuacion({ role: null })],
+    ];
+    const datos = [
+      { nivel: 7, isRanked: true },
+      { nivel: 8, isRanked: false },
+      { nivel: 9, isRanked: true },
+    ];
+
+    const resultado = datosDePartidas(
+      buildFilas(rondas, jugadores),
+      (n) => datos[n - 1]
+    );
+
+    expect(resultado).toEqual({
+      partidas: [{ num_partida: 2, nivel: 8, is_ranked: false }],
+      incompletas: [],
+    });
+  });
+
+  it("señala la ronda sin nivel o sin ranked en vez de inventárselo", () => {
+    const rondas: PlayerScore[][] = [
+      [puntuacion({ role: "R" })],
+      [puntuacion({ role: "R" })],
+      [puntuacion({ role: "R" })],
+    ];
+    const datos = [
+      { nivel: 7, isRanked: true },
+      { nivel: null, isRanked: true },
+      { nivel: 7, isRanked: undefined },
+    ];
+
+    const resultado = datosDePartidas(
+      buildFilas(rondas, ["Arcan"]),
+      (n) => datos[n - 1]
+    );
+
+    expect(resultado.partidas).toEqual([
+      { num_partida: 1, nivel: 7, is_ranked: true },
+    ]);
+    expect(resultado.incompletas).toEqual([2, 3]);
+  });
+
+  it("una ronda sin datos en absoluto también es incompleta", () => {
+    const resultado = datosDePartidas(
+      buildFilas([[puntuacion({ role: "R" })]], ["Arcan"]),
+      () => undefined
+    );
+
+    expect(resultado).toEqual({ partidas: [], incompletas: [1] });
+  });
+});
+
+describe("muertosDeFilas: los muertos para el aviso de Telegram", () => {
+  /*
+   * Sólo informativo (la muerte no se guarda), pero tiene que salir de las
+   * MISMAS filas que el resto del aviso para no anunciar un muerto que no es.
+   * emparejarFilas ya excluye las importadas y las columnas sin jugador.
+   */
+  it("devuelve num_partida y jugador de las filas con vive=false", () => {
+    const jugadores = ["Arcan", "Miquel", "AliG"];
+    const rondas: PlayerScore[][] = [
+      [
+        puntuacion({ role: "R", alive: false }),
+        puntuacion({ role: "V", alive: true }),
+        puntuacion({ role: "A", alive: false }),
+      ],
+      [
+        puntuacion({ role: "R", alive: true }),
+        puntuacion({ role: "V", alive: false }),
+        puntuacion({ role: "A", alive: true }),
+      ],
+    ];
+
+    expect(muertosDeFilas(emparejarFilas(rondas, jugadores))).toEqual([
+      { num_partida: 1, jugador: "Arcan" },
+      { num_partida: 1, jugador: "AliG" },
+      { num_partida: 2, jugador: "Miquel" },
+    ]);
+  });
+
+  it("no incluye filas importadas: ya no están en emparejarFilas", () => {
+    const rondas: PlayerScore[][] = [
+      [
+        puntuacion({ role: "R", alive: false, imported: true }),
+        puntuacion({ role: "V", alive: true }),
+      ],
+    ];
+
+    expect(muertosDeFilas(emparejarFilas(rondas, ["Arcan", "Miquel"]))).toEqual(
+      []
+    );
   });
 });

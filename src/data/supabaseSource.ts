@@ -187,7 +187,7 @@ export function createSupabaseSource(): DataSource {
       const rows = await fetchAllPages((from, to, signal) =>
         supabase
           .from("v_games")
-          .select("num_partida,jugador,rol,puntos,ganada")
+          .select("num_partida,jugador,rol,puntos,ganada,nivel,is_ranked")
           .eq("torneo_id", id)
           .order("id", { ascending: true })
           .range(from, to)
@@ -208,6 +208,9 @@ export function createSupabaseSource(): DataSource {
           role: row.rol,
           score: row.puntos ?? 0,
           winner: row.ganada ?? false,
+          // numeric llega como número por PostgREST; Number() por si acaso.
+          nivel: row.nivel === null ? null : Number(row.nivel),
+          isRanked: row.is_ranked,
         });
       }
       return rondas;

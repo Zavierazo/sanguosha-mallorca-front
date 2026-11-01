@@ -69,6 +69,13 @@ export interface RoundEntry {
   role: string;
   score: number;
   winner: boolean;
+  /**
+   * `partidas.nivel` e `is_ranked` de esa ronda: el mismo valor en todas las
+   * celdas de la ronda. Sirven para que la ronda nueva de un torneo continuado
+   * herede el nivel y el ranked de la última jugada. Null en partidas antiguas.
+   */
+  nivel: number | null;
+  isRanked: boolean | null;
 }
 
 /** numPartida -> jugador -> resultado. La forma que ya consumía Ranking.tsx. */
@@ -96,6 +103,8 @@ export interface Personaje {
   additionalSkills?: string | null;
   faq?: string | null;
   lore?: string | null;
+  /** Columna opcional `shortLore` del Excel: texto plano, sin formato. */
+  shortLore?: string | null;
   servidor?: string | null;
   expansion?: string | null;
   version?: string | null;

@@ -22,6 +22,18 @@
  * recorta cada campo. Y cualquier línea que no encaje en ningún patrón se
  * ignora, que es lo que permite pegar el mensaje de Telegram entero.
  *
+ * Formato v2: el nivel y el "ranked" son de cada partida (`partidas.nivel` y
+ * `partidas.is_ranked` lo son en la base de datos), así que van en la línea de
+ * la partida y no en la cabecera:
+ *
+ *     Partida 2 · Nivel 7
+ *     Partida 3 · Nivel 8 · no ranked
+ *
+ * "no ranked" sólo se escribe cuando toca: lo raro es lo que tiene que saltar a
+ * la vista. Cada partida DEBE traer su nivel en la línea; el parseador ya no
+ * lee el `Nivel:`/`Ranked:` de cabecera que tenía el formato v1 (se retiró
+ * cuando dejó de haber partidas históricas pendientes de importar).
+ *
  * Nota: los nombres de jugador no pueden contener `,` ni `|`. La lista de
  * jugadores va separada por comas y las filas por barras. Ningún nombre de la
  * base de datos los tiene (son apodos), pero el selector permite teclear
@@ -35,8 +47,12 @@
  * Sirve para que un texto de un formato futuro no se interprete a medias con
  * las reglas de hoy: el parseador se niega en vez de adivinar. Subirla sólo
  * cuando cambie la gramática de forma incompatible.
+ *
+ * v1: nivel y ranked en la cabecera, uno para toda la sesión. YA NO se importa:
+ *     sus partidas no traen el nivel en la línea y el parseador las rechaza.
+ * v2: nivel y ranked en la línea de cada partida.
  */
-export const RAW_DATA_VERSION = 1;
+export const RAW_DATA_VERSION = 2;
 
 /** Una fila del texto: un jugador en una ronda. */
 export interface RawDataFila {
@@ -57,6 +73,13 @@ export interface RawDataFila {
   vive: boolean;
 }
 
+/** Lo que es de cada ronda y no de cada jugador: `partidas.nivel` e `is_ranked`. */
+export interface RawDataRonda {
+  numPartida: number;
+  nivel: number;
+  isRanked: boolean;
+}
+
 /** Todo lo que hace falta para reconstruir la pantalla y guardar la partida. */
 export interface RawDataPartida {
   /** `YYYY-MM-DD`. */
@@ -65,11 +88,16 @@ export interface RawDataPartida {
   scoringSystem: string;
   /** null es "torneo nuevo"; un número, la continuación de ese torneo. */
   torneoId: number | null;
-  nivel: number;
-  isRanked: boolean;
   descripcion: string;
   /** En orden de asiento. Es el orden de las columnas de la tabla. */
   jugadores: string[];
+  /**
+   * Nivel y ranked de cada ronda que tiene filas, ordenadas por número. Al
+   * formatear, una ronda sin entrada aquí sale con "Nivel ?", que el parseador
+   * rechaza: mejor un texto que no se puede importar que uno que se inventa el
+   * nivel.
+   */
+  rondas: RawDataRonda[];
   filas: RawDataFila[];
 }
 
@@ -129,12 +157,33 @@ const normalizar = (texto: string): string =>
     .trim()
     .toLocaleLowerCase();
 
+/** `partidas.nivel` es numeric: 9.0 debe verse "9", pero existe el nivel 6.5. */
+export const formatearNivel = (nivel: number): string => String(Number(nivel));
+
+/**
+ * "Partida 2 · Nivel 7", o "Partida 3 · Nivel 8 · no ranked".
+ *
+ * Es la misma etiqueta en el Raw Data, en el resumen de guardar y (copiada, no
+ * importada) en el aviso de Telegram.
+ */
+export function etiquetaRonda(
+  numPartida: number,
+  datos: { nivel: number | null; isRanked: boolean | null } | null | undefined
+): string {
+  const nivel =
+    datos?.nivel === null || datos?.nivel === undefined
+      ? "?"
+      : formatearNivel(datos.nivel);
+  const ranked = datos?.isRanked === false ? " · no ranked" : "";
+  return `Partida ${numPartida} · Nivel ${nivel}${ranked}`;
+}
+
 /**
  * El texto que se copia y se comparte.
  *
- * `partida.filas` tiene que venir de `emparejarFilas()`: son exactamente las
- * filas que se enviarían a la base de datos, así que lo que se lee en el texto
- * y lo que se inserta no pueden discrepar.
+ * `partida.filas` tiene que venir de `emparejarFilas()` y `partida.rondas` de
+ * `datosDePartidas()`: son exactamente lo que se enviaría a la base de datos,
+ * así que lo que se lee en el texto y lo que se inserta no pueden discrepar.
  */
 export function formatRawData(partida: RawDataPartida): string {
   const conflictivos = partida.jugadores.filter((nombre) =>
@@ -150,8 +199,6 @@ export function formatRawData(partida: RawDataPartida): string {
         ? "nuevo"
         : `${partida.torneoId} (continuación)`
     }`,
-    `Nivel: ${partida.nivel}`,
-    `Ranked: ${partida.isRanked ? "sí" : "no"}`,
     `Descripción: ${partida.descripcion.trim() || "-"}`,
     `Jugadores: ${partida.jugadores.join(", ")}`,
   ];
@@ -183,9 +230,10 @@ export function formatRawData(partida: RawDataPartida): string {
   const rondas = Array.from(
     new Set(partida.filas.map((fila) => fila.numPartida))
   ).sort((a, b) => a - b);
+  const datosRonda = new Map(partida.rondas.map((r) => [r.numPartida, r]));
 
   for (const ronda of rondas) {
-    lineas.push("", `Ronda ${ronda}`);
+    lineas.push("", etiquetaRonda(ronda, datosRonda.get(ronda)));
     for (const fila of partida.filas.filter((f) => f.numPartida === ronda)) {
       const marcas = [fila.gana ? "gana" : null, fila.vive ? null : "muere"]
         .filter(Boolean)
@@ -205,7 +253,16 @@ export function formatRawData(partida: RawDataPartida): string {
 
 /** `Campo: valor`, tolerando sangría, comillas de cita y negritas de Markdown. */
 const CAMPO = /^[>*\s]*([A-Za-zÁÉÍÓÚáéíóúÑñ]+)\s*:\s*(.*?)[*\s]*$/;
-const RONDA = /^[>*\s]*ronda\s+(\d+)/i;
+/** `Partida N` y lo que siga en la línea (nivel, ranked). */
+const RONDA = /^[>*\s]*partida\s+(\d+)(.*)$/i;
+/**
+ * El nivel dentro de la línea de la ronda. Admite `6.5` y `6,5`, y cualquier
+ * separador delante (`·`, `-`, `,`). Si lo que sigue a "Nivel" no es un número
+ * se captura igual, para poder decir qué no se ha entendido.
+ */
+const NIVEL_EN_RONDA = /nivel\s*:?\s*(\d+(?:[.,]\d+)?|[^\s·|,]+)/i;
+/** La marca "no ranked" en la línea de la partida. Sin ella, la partida es ranked. */
+const NO_RANKED = /\bno[\s-]*ranked\b/i;
 const VERSION = /formato\s*v(\d+)/i;
 
 /**
@@ -216,16 +273,24 @@ const VERSION = /formato\s*v(\d+)/i;
  * una barra ("Descripción: liga | jornada 3") competiría con el patrón de fila,
  * y al revés, un comentario suelto de Telegram con dos puntos se colaría como
  * campo.
+ *
+ * El nivel y el ranked NO van aquí: son de cada partida y viajan en su línea
+ * ("Partida N · Nivel X [· no ranked]").
  */
 const CAMPOS_CABECERA = new Set([
   "fecha",
   "sistema",
   "torneo",
-  "nivel",
-  "ranked",
   "descripcion",
   "jugadores",
 ]);
+
+/** Lo que trae la línea de una partida, sin validar todavía. */
+interface LineaRonda {
+  nivelTexto: string | null;
+  /** false si lleva "no ranked"; si no, null (= ranked). */
+  isRanked: boolean | null;
+}
 
 /**
  * Lee un Raw Data pegado y lo convierte en algo que se puede cargar y guardar.
@@ -248,6 +313,7 @@ export function parseRawData(
   const lineas = texto.split(/\r?\n/);
 
   const campos = new Map<string, string>();
+  const lineasRonda = new Map<number, LineaRonda>();
   const filas: RawDataFila[] = [];
   let version: number | null = null;
   let rondaActual: number | null = null;
@@ -262,6 +328,17 @@ export function parseRawData(
     const ronda = RONDA.exec(linea);
     if (ronda) {
       rondaActual = Number(ronda[1]);
+      // Como con la cabecera, se queda la primera aparición: en un mensaje
+      // citado la ronda sale dos veces y la de arriba es la del original.
+      if (!lineasRonda.has(rondaActual)) {
+        const resto = ronda[2] ?? "";
+        const nivel = NIVEL_EN_RONDA.exec(resto);
+        lineasRonda.set(rondaActual, {
+          nivelTexto: nivel ? nivel[1] : null,
+          // Sólo "no ranked" baja a false; cualquier otra cosa es ranked.
+          isRanked: NO_RANKED.test(resto) ? false : null,
+        });
+      }
       continue;
     }
 
@@ -344,7 +421,7 @@ export function parseRawData(
 
   if (filasSinRonda > 0) {
     errores.push(
-      `Hay ${filasSinRonda} fila(s) antes de la primera línea "Ronda N": no se sabe a qué ronda pertenecen.`
+      `Hay ${filasSinRonda} fila(s) antes de la primera línea "Partida N": no se sabe a qué partida pertenecen.`
     );
   }
 
@@ -367,30 +444,6 @@ export function parseRawData(
         ? `La fecha "${fecha}" no tiene el formato AAAA-MM-DD.`
         : "Falta la fecha."
     );
-  }
-
-  const nivelTexto = campos.get("nivel") ?? "";
-  const nivel = Number(nivelTexto.replace(",", "."));
-  if (!nivelTexto || !Number.isFinite(nivel)) {
-    errores.push("Falta el nivel de la partida, o no es un número.");
-  } else if (!opciones.nivelesValidos.includes(nivel)) {
-    // El nivel multiplica la experiencia de todos los jugadores de la mesa, así
-    // que un valor que no está en el desplegable no se corrige en silencio.
-    errores.push(
-      `El nivel ${nivel} no es válido. Valores admitidos: ${opciones.nivelesValidos.join(", ")}.`
-    );
-  }
-
-  const rankedTexto = normalizar(campos.get("ranked") ?? "");
-  let isRanked = true;
-  if (!rankedTexto) {
-    avisos.push('No se indica si la partida es "ranked". Se dará por hecho que sí.');
-  } else if (/^(si|s|yes|y|true|1)$/.test(rankedTexto)) {
-    isRanked = true;
-  } else if (/^(no|n|false|0)$/.test(rankedTexto)) {
-    isRanked = false;
-  } else {
-    errores.push(`No se entiende "Ranked: ${campos.get("ranked")}".`);
   }
 
   const descripcionCruda = campos.get("descripcion") ?? "";
@@ -431,7 +484,7 @@ export function parseRawData(
         )
       );
       avisos.push(
-        `No hay línea "Jugadores": se ha tomado el orden en que aparecen en la ronda ${primera}.`
+        `No hay línea "Jugadores": se ha tomado el orden en que aparecen en la partida ${primera}.`
       );
     }
   }
@@ -458,7 +511,7 @@ export function parseRawData(
   // ------------------------------------------------------------------- rondas
   if (filas.length === 0) {
     errores.push(
-      'No se ha encontrado ninguna fila de puntuaciones. Cada ronda va tras una línea "Ronda N", con filas "Jugador | Rol | Puntos".'
+      'No se ha encontrado ninguna fila de puntuaciones. Cada partida va tras una línea "Partida N", con filas "Jugador | Rol | Puntos".'
     );
   }
 
@@ -481,6 +534,33 @@ export function parseRawData(
     new Set(filas.map((fila) => fila.numPartida))
   ).sort((a, b) => a - b);
 
+  // Nivel y ranked salen de la línea de cada partida ("Partida N · Nivel X [·
+  // no ranked]"). Un nivel que no está en el desplegable no se corrige en
+  // silencio: multiplica la experiencia de toda la mesa. Sin marca "no ranked",
+  // la partida cuenta como ranked.
+  const datosRondas: RawDataRonda[] = [];
+  for (const ronda of rondas) {
+    const propia = lineasRonda.get(ronda);
+    const nivelTexto = propia?.nivelTexto ?? null;
+    const nivel = nivelTexto === null ? NaN : Number(nivelTexto.replace(",", "."));
+
+    if (nivelTexto === null) {
+      errores.push(
+        `Falta el nivel de la partida ${ronda}: se esperaba "Partida ${ronda} · Nivel N".`
+      );
+    } else if (!Number.isFinite(nivel)) {
+      errores.push(
+        `El nivel de la partida ${ronda} ("${nivelTexto}") no es un número.`
+      );
+    } else if (!opciones.nivelesValidos.includes(nivel)) {
+      errores.push(
+        `El nivel ${nivel} de la partida ${ronda} no es válido. Valores admitidos: ${opciones.nivelesValidos.join(", ")}.`
+      );
+    }
+
+    datosRondas.push({ numPartida: ronda, nivel, isRanked: propia?.isRanked !== false });
+  }
+
   for (const ronda of rondas) {
     const deLaRonda = filas.filter((fila) => fila.numPartida === ronda);
 
@@ -489,7 +569,7 @@ export function parseRawData(
       .filter((nombre, indice, todos) => todos.indexOf(nombre) !== indice);
     if (repetidos.length > 0) {
       errores.push(
-        `En la ronda ${ronda} hay filas repetidas de: ${Array.from(
+        `En la partida ${ronda} hay filas repetidas de: ${Array.from(
           new Set(repetidos)
         ).join(", ")}.`
       );
@@ -500,15 +580,15 @@ export function parseRawData(
     // copiar. Se avisa y se deja continuar: quien importa tiene la mesa delante.
     if (jugadores.length > 0 && deLaRonda.length !== jugadores.length) {
       avisos.push(
-        `La ronda ${ronda} tiene ${deLaRonda.length} filas y hay ${jugadores.length} jugadores.`
+        `La partida ${ronda} tiene ${deLaRonda.length} filas y hay ${jugadores.length} jugadores.`
       );
     }
     const reyes = deLaRonda.filter((fila) => fila.rol === "R").length;
     if (reyes !== 1) {
-      avisos.push(`La ronda ${ronda} tiene ${reyes} reyes; debería tener uno.`);
+      avisos.push(`La partida ${ronda} tiene ${reyes} reyes; debería tener uno.`);
     }
     if (!deLaRonda.some((fila) => fila.gana)) {
-      avisos.push(`En la ronda ${ronda} no gana nadie.`);
+      avisos.push(`En la partida ${ronda} no gana nadie.`);
     }
   }
 
@@ -520,7 +600,11 @@ export function parseRawData(
     );
   }
 
-  if (errores.length > 0) return { ok: false, errores, avisos };
+  // Un nivel de cabecera mal puesto saldría una vez por ronda.
+  const erroresUnicos = Array.from(new Set(errores));
+  if (erroresUnicos.length > 0) {
+    return { ok: false, errores: erroresUnicos, avisos };
+  }
 
   return {
     ok: true,
@@ -529,10 +613,9 @@ export function parseRawData(
       fecha,
       scoringSystem: opciones.sistemaEsperado,
       torneoId,
-      nivel,
-      isRanked,
       descripcion,
       jugadores,
+      rondas: datosRondas,
       filas,
     },
   };

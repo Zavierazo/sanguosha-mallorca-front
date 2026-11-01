@@ -253,6 +253,17 @@
   overflow-wrap: anywhere;
 }
 
+.ficha-titulo-y-atributos .ficha-shortlore {
+  width: 100%;
+  margin: 0;
+  color: #36312a;
+  font-size: 1.2rem;
+  font-style: italic;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .ficha-acciones {
   display: flex;
   flex: none;

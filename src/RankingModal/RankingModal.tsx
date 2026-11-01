@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { crearRutaMesa } from "../Mesa/mesa";
+import type { AuthState } from "../supabase/useAuth";
+import { avisarMesa } from "../supabase/crearTorneo";
 import "./RankingModal.css";
 import {
   baseDeRonda,
@@ -9,7 +11,15 @@ import {
   firmaMesa,
   leerBorradores,
   sinBorrador,
+  type DatosRondaBorrador,
 } from "./borrador";
+import { esNivelPartida, NIVELES_PARTIDA } from "../Ranking/niveles";
+import {
+  listarNombres,
+  type AvisoNivel,
+  type ValoresInicialesRonda,
+} from "../Ranking/datosRonda";
+import { formatearNivel } from "../Ranking/formatoRawData";
 import {
   materialRenderers,
   materialCells,
@@ -48,10 +58,26 @@ function igualesPorValor(
 }
 
 interface RankingModalProps {
+  /**
+   * La sesión, elevada a Ranking. El botón de la mesa la usa para decidir si
+   * además de copiar el enlace lo publica en el grupo de Telegram: sólo lo hace
+   * un organizador identificado.
+   */
+  auth: AuthState;
   /** El catálogo, o null si no ha cargado: el campo sale deshabilitado. */
   personajes: Personaje[] | null;
-  /** El nivel del desplegable: sus personajes se sugieren primero. */
-  nivel: number;
+  /**
+   * Con qué nivel y ranked nace la ronda: los suyos, los de la anterior o el
+   * automático (ver `valoresInicialesRonda`). Se leen una vez, al montar.
+   */
+  valoresIniciales: ValoresInicialesRonda;
+  /**
+   * El nivel automático de la mesa, o null si no ha llegado. Si la ronda nace
+   * con el automático y nadie toca el desplegable, lo sigue cuando cambia.
+   */
+  nivelAutomatico: number | null;
+  /** "Puede que hoy suba de nivel", o null. */
+  avisoNivel: AvisoNivel | null;
   players: string[];
   currentRound: number;
   previousPoints?: PlayerScore[];
@@ -61,8 +87,11 @@ interface RankingModalProps {
 }
 
 const RankingModal = ({
+  auth,
   personajes,
-  nivel,
+  valoresIniciales,
+  nivelAutomatico,
+  avisoNivel,
   players,
   currentRound,
   previousPoints,
@@ -115,6 +144,35 @@ const RankingModal = ({
     const borrador = borradorDeRonda(leerBorradores(), mesa, currentRound, base, new Date());
     return { mesa, base, borrador };
   });
+
+  /*
+   * Nivel y ranked de ESTA ronda (van a `partidas.nivel` / `is_ranked`).
+   *
+   * Del borrador sólo se recupera lo que alguien tocó. Lo no tocado se vuelve
+   * a heredar: entre que se escribió el borrador y ahora puede haberse enviado
+   * la ronda anterior con otro nivel, y ése es el que vale.
+   */
+  const [datosRonda, setDatosRonda] = useState<DatosRondaBorrador>(() => {
+    const b = borrador?.ronda;
+    return {
+      nivel: b?.nivelTocado ? b.nivel : valoresIniciales.nivel,
+      nivelTocado: b?.nivelTocado ?? false,
+      isRanked: b?.rankedTocado ? b.isRanked : valoresIniciales.isRanked,
+      rankedTocado: b?.rankedTocado ?? false,
+    };
+  });
+  const [origenNivel] = useState(valoresIniciales.origenNivel);
+  const nivel = datosRonda.nivel;
+
+  // Los niveles de los jugadores llegan de la base de datos después de montar
+  // la página (y al recargar con el modal abierto, después de abrirlo). Si la
+  // ronda nació con el automático y nadie ha tocado el desplegable, lo sigue.
+  useEffect(() => {
+    if (datosRonda.nivelTocado || origenNivel !== "automatico") return;
+    if (nivelAutomatico === null || !esNivelPartida(nivelAutomatico)) return;
+    if (datosRonda.nivel === Number(nivelAutomatico)) return;
+    setDatosRonda((d) => ({ ...d, nivel: Number(nivelAutomatico) }));
+  }, [datosRonda.nivel, datosRonda.nivelTocado, nivelAutomatico, origenNivel]);
 
   const datosIniciales = borrador
     ? { ...initialData, ...borrador.jugadores }
@@ -261,18 +319,53 @@ const RankingModal = ({
           jugadores: playersData,
           filasPersonaje: filasGuardadas,
           dinamicos: dynamicData,
+          ronda: datosRonda,
         },
         new Date()
       )
     );
-  }, [playersData, filasPersonaje, dynamicData, mesa, base, currentRound, players]);
+  }, [playersData, filasPersonaje, dynamicData, datosRonda, mesa, base, currentRound, players]);
   const [dynamicDataValid, setDynamicDataValid] = useState(true);
   const [additionalErrors, setAdditionalErrors] = useState<ErrorObject[]>([]);
 
-  function compartirMesaEnTelegram() {
-    const filasPersonajes = players.map((player) => {
-      return filasPersonaje[player] ?? null;
-    });
+  /*
+   * El botón de la mesa: copia el enlace y, si eres organizador, lo publica.
+   *
+   * `mesaAviso` es el texto verde/rojo que sale bajo el pie; `mesaEstado` dice
+   * si se está enviando al grupo, para deshabilitar el botón mientras tanto. El
+   * temporizador borra el aviso solo y se cancela al desmontar (el modal se
+   * desmonta al cerrarse), para no escribir estado en un componente muerto.
+   */
+  const [mesaAviso, setMesaAviso] = useState<string | null>(null);
+  const [mesaAvisoError, setMesaAvisoError] = useState<boolean>(false);
+  const [mesaEstado, setMesaEstado] = useState<"idle" | "enviando">("idle");
+  const mesaTemporizador = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (mesaTemporizador.current !== null) {
+        window.clearTimeout(mesaTemporizador.current);
+      }
+    },
+    []
+  );
+
+  const avisarMesaUI = useCallback((mensaje: string, esError = false) => {
+    setMesaAviso(mensaje);
+    setMesaAvisoError(esError);
+    if (mesaTemporizador.current !== null) {
+      window.clearTimeout(mesaTemporizador.current);
+    }
+    // Los errores aguantan más en pantalla que los "copiado".
+    mesaTemporizador.current = window.setTimeout(
+      () => setMesaAviso(null),
+      esError ? 8000 : 4000
+    );
+  }, []);
+
+  /** El enlace a la vista de mesa con los asientos y personajes de ahora. */
+  const construirEnlaceMesa = useCallback((): string => {
+    const filasPersonajes = players.map((player) => filasPersonaje[player] ?? null);
     const baseUrl = new URL(
       import.meta.env.BASE_URL,
       window.location.origin
@@ -282,11 +375,105 @@ const RankingModal = ({
         playersData[`${player}_role` as keyof typeof playersData] === "King"
     );
     const rey = reyes.length === 1 ? reyes[0] : null;
-    const enlace = crearRutaMesa(baseUrl, players, filasPersonajes, rey);
-    const enlaceTelegram = new URL("https://t.me/share/url");
-    enlaceTelegram.searchParams.set("url", enlace);
-    window.open(enlaceTelegram.toString(), "_blank", "noopener,noreferrer");
-  }
+    return crearRutaMesa(baseUrl, players, filasPersonajes, rey);
+  }, [players, filasPersonaje, playersData]);
+
+  /**
+   * Copia el enlace al portapapeles. `navigator.clipboard` no existe fuera de un
+   * contexto seguro (http:// que no sea localhost); ahí no se finge que ha ido
+   * bien. Mismo patrón que RawData.tsx.
+   */
+  const copiarEnlace = useCallback(async (enlace: string): Promise<boolean> => {
+    if (!navigator.clipboard?.writeText) return false;
+    try {
+      await navigator.clipboard.writeText(enlace);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  /**
+   * Mensaje HTML para Telegram: jugadores (rey en negrita) y el enlace en un
+   * `<a href>` con el texto "Abrir la mesa".
+   *
+   * Telegram sólo hace clicable una URL (en `<a>` o en texto) si el host parece
+   * público: en desarrollo, con `window.location.origin` = `localhost:5174`,
+   * el enlace NO sale clicable, y es esperable. En producción
+   * (`mallorca.sanguosha.es`) sí. Los caracteres percent-encoded de la query
+   * (`%5B`, `%22`…) no son el problema; sólo lo era el host local.
+   */
+  const mensajeMesaTelegram = useCallback(
+    (enlace: string): string => {
+      const escapar = (t: string) =>
+        t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const reyes = players.filter(
+        (player) =>
+          playersData[`${player}_role` as keyof typeof playersData] === "King"
+      );
+      const rey = reyes.length === 1 ? reyes[0] : null;
+      const jugadores = players
+        .map((player) =>
+          player === rey ? `<b>${escapar(player)}</b> 👑` : escapar(player)
+        )
+        .join(", ");
+      return (
+        `🀄️ <b>Nueva mesa</b> (${players.length} jugadores)\n` +
+        `${jugadores}\n` +
+        `<a href="${escapar(enlace)}">Abrir la mesa</a>`
+      );
+    },
+    [players, playersData]
+  );
+
+  /**
+   * Un único botón, dos comportamientos según la sesión:
+   *   - organizador identificado: copia el enlace Y lo publica en el grupo;
+   *   - resto (sin sesión, sin permisos, o Supabase sin configurar): sólo copia.
+   * Publicar sin ser organizador no se ofrece: la Edge Function lo rechazaría, y
+   * el botón que cualquiera pudiera pulsar spamearía el grupo (era el riesgo).
+   */
+  const puedeEnviarMesa = auth.configured && auth.isOrganiser === true;
+
+  const compartirMesa = useCallback(async () => {
+    const enlace = construirEnlaceMesa();
+    const copiado = await copiarEnlace(enlace);
+
+    if (!puedeEnviarMesa) {
+      avisarMesaUI(
+        copiado
+          ? "Enlace copiado al portapapeles."
+          : "Este navegador no deja copiar automáticamente; copia el enlace de la barra a mano.",
+        !copiado
+      );
+      return;
+    }
+
+    setMesaEstado("enviando");
+    try {
+      await avisarMesa(mensajeMesaTelegram(enlace));
+      avisarMesaUI(
+        copiado
+          ? "Enlace copiado y enviado al grupo de Telegram."
+          : "Enviado al grupo de Telegram (no se ha podido copiar al portapapeles)."
+      );
+    } catch (e: unknown) {
+      avisarMesaUI(
+        `${copiado ? "Enlace copiado, pero " : ""}no se ha podido enviar al grupo: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+        true
+      );
+    } finally {
+      setMesaEstado("idle");
+    }
+  }, [
+    construirEnlaceMesa,
+    copiarEnlace,
+    puedeEnviarMesa,
+    mensajeMesaTelegram,
+    avisarMesaUI,
+  ]);
 
   const playerRoleSchema = useMemo(() => ({
     type: "object",
@@ -489,6 +676,8 @@ const RankingModal = ({
       {
         winner: playersData.winner,
         ...dynamicData,
+        nivel: datosRonda.nivel,
+        isRanked: datosRonda.isRanked,
       }
     );
   }
@@ -633,8 +822,78 @@ const RankingModal = ({
 
   return (
     <div className="RankingModal-component">
-      <div className="rm-header">Ronda {currentRound}</div>
+      <div className="rm-header">Partida {currentRound}</div>
       <div className="rm-body">
+        {/*
+          Nivel y ranked de esta partida. Antes eran uno para toda la sesión,
+          en la pantalla de Ranking; en la base de datos siempre fueron de cada
+          partida. El desplegable es la única fuente de `partidas.nivel`.
+        */}
+        <div className="rm-partida flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            Nivel de la partida
+            <select
+              value={nivel}
+              onChange={(e) =>
+                setDatosRonda((d) => ({
+                  ...d,
+                  nivel: Number(e.target.value),
+                  nivelTocado: true,
+                }))
+              }
+              className="rounded border border-gray-300 px-2 py-1"
+            >
+              {NIVELES_PARTIDA.map((n) => (
+                <option key={n} value={n}>
+                  {formatearNivel(n)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={datosRonda.isRanked}
+              onChange={(e) =>
+                setDatosRonda((d) => ({
+                  ...d,
+                  isRanked: e.target.checked,
+                  rankedTocado: true,
+                }))
+              }
+              className="h-4 w-4"
+            />
+            Ranked
+          </label>
+        </div>
+        {/*
+          Aviso de "puede que hoy suba de nivel". Sólo informa: quien decide es
+          la persona. Desaparece en cuanto el desplegable llega al nivel
+          siguiente, que es la forma de contestar "sí, hoy sube".
+
+          role="status" y no "alert": no es un error, y el texto lleva el aviso
+          escrito, no sólo el color de fondo.
+        */}
+        {avisoNivel !== null && nivel < avisoNivel.siguiente && (
+          <p
+            role="status"
+            className="mt-2 rounded border border-yellow-300 bg-yellow-100 p-2 text-sm text-yellow-800"
+          >
+            {(() => {
+              const uno = avisoNivel.jugadores.length === 1;
+              return (
+                `⚠️ ${listarNombres(avisoNivel.jugadores)} ${uno ? "marca" : "marcan"} ` +
+                `el nivel de la mesa (${formatearNivel(avisoNivel.nivelMesa)}) y ` +
+                `${uno ? "está" : "están"} al 100 % de experiencia: ` +
+                `${uno ? "tiene" : "tienen"} desbloqueado al menos el nivel ` +
+                `${formatearNivel(avisoNivel.desbloqueado)} sin haberlo jugado. ` +
+                `Comprueba si esta partida es de nivel ${formatearNivel(avisoNivel.nivelMesa)} ` +
+                `o si en ella ${uno ? "sube" : "suben"} a ` +
+                `${formatearNivel(avisoNivel.siguiente)}, y ajusta el desplegable.`
+              );
+            })()}
+          </p>
+        )}
         <JsonForms
           schema={playerRoleSchema}
           uischema={playerRoleUISchema}
@@ -689,22 +948,59 @@ const RankingModal = ({
           >
             Submit
           </button>
+          {/*
+            Un solo botón. Si eres organizador identificado, copia el enlace Y
+            lo publica en el tema de mesas del grupo; si no, sólo lo copia. El
+            literal lo dice, para que se vea qué va a pasar antes de pulsar.
+          */}
           <button
             type="button"
-            className="px-4 py-2 text-lg font-medium text-center text-white bg-sky-500 rounded-lg hover:bg-sky-600 focus:ring-4 focus:outline-none focus:ring-sky-300"
-            onClick={compartirMesaEnTelegram}
-            title="Abre Telegram con el enlace a esta mesa"
+            className="px-4 py-2 text-lg font-medium text-center text-white bg-sky-500 rounded-lg hover:bg-sky-600 focus:ring-4 focus:outline-none focus:ring-sky-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            onClick={compartirMesa}
+            disabled={mesaEstado === "enviando"}
+            title={
+              puedeEnviarMesa
+                ? "Copia el enlace a esta mesa y lo publica en el grupo de Telegram"
+                : "Copia el enlace a esta mesa al portapapeles"
+            }
           >
-            ✈️ Telegram
+            {mesaEstado === "enviando"
+              ? "Enviando…"
+              : puedeEnviarMesa
+              ? "📋✈️ Copy & Send game link"
+              : "📋 Copy game link"}
           </button>
+          {/*
+            Antes "Cancel", y la gente creía que perdía lo escrito. No es así:
+            cada cambio ya está en el borrador (./borrador.ts), y cerrar lo
+            conserva. Lo mismo el clic fuera y Escape. No valida ni calcula
+            puntos: eso es Submit.
+          */}
           <button
             type="button"
-            className="px-4 py-2 text-xl font-medium text-center text-white bg-red-700 rounded-lg hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300"
+            className="px-4 py-2 text-xl font-medium text-center text-white bg-gray-600 rounded-lg hover:bg-gray-700 focus:ring-4 focus:outline-none focus:ring-gray-300"
             onClick={() => handleClose()}
+            title="Guarda lo escrito sin apuntar la ronda; al reabrirla sigue ahí"
           >
-            Cancel
+            Save &amp; Close
           </button>
         </div>
+        <div aria-live="polite">
+          {mesaAviso && (
+            <p
+              className={
+                "mt-1 text-center text-xs " +
+                (mesaAvisoError ? "text-red-600" : "text-green-700")
+              }
+            >
+              {mesaAviso}
+            </p>
+          )}
+        </div>
+        <p className="mt-1 text-center text-xs text-gray-500">
+          Los cambios se guardan solos. Submit calcula los puntos y apunta la
+          partida.
+        </p>
       </div>
     </div>
   );

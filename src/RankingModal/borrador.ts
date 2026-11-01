@@ -9,7 +9,9 @@
  *
  * Así que cada cambio del modal se guarda aquí, en localStorage, y al recargar
  * el modal reaparece abierto en la misma ronda tal como estaba. Submit borra el
- * borrador de esa ronda; Cancel lo conserva (reabrir la ronda lo recupera).
+ * borrador de esa ronda; Save & Close (y el clic fuera) lo conserva, y reabrir
+ * la ronda lo recupera. Incluye el nivel y el ranked de la ronda: desde la
+ * versión 2 del borrador son de cada ronda, no de la sesión.
  *
  * Esto NO toca `playerScores`: el camino hacia la base de datos (envío, Raw
  * Data, resumen) sigue saliendo sólo de lo que se ha enviado con Submit.
@@ -28,7 +30,12 @@
 
 import type { GameScore, PlayerScore } from "../Ranking/Ranking";
 
-export const CLAVE_BORRADOR = "borradorRonda-v1";
+/**
+ * v2 desde que el nivel y el ranked son de cada ronda. La v1 se abandona sin
+ * convertirla: el cambio se desplegó con la web en mantenimiento y todo el
+ * mundo empezó de cero.
+ */
+export const CLAVE_BORRADOR = "borradorRonda-v2";
 
 /** Holgado para una partida de dos o tres horas; corto para la sesión siguiente. */
 export const CADUCIDAD_MS = 12 * 60 * 60 * 1000;
@@ -42,12 +49,31 @@ export interface BorradorRonda {
   filasPersonaje?: Record<string, number>;
   /** El `data` del formulario de datos adicionales. */
   dinamicos: Record<string, unknown>;
+  /** Nivel y ranked elegidos en el modal, si ya se había escrito alguno. */
+  ronda?: DatosRondaBorrador;
   /** ISO. */
   actualizado: string;
 }
 
+export interface DatosRondaBorrador {
+  nivel: number;
+  isRanked: boolean;
+  /**
+   * Si alguien ha tocado el desplegable de nivel. Mientras no, el nivel sigue
+   * al automático (el mínimo de la mesa), que puede llegar después de abrir el
+   * modal: los niveles de los jugadores se leen de la base de datos.
+   */
+  nivelTocado: boolean;
+  /**
+   * Lo mismo para la casilla Ranked. Un borrador sin tocar no fija nada: al
+   * reabrirlo, nivel y ranked se vuelven a heredar de la ronda anterior, que
+   * puede haberse enviado mientras tanto con otros valores.
+   */
+  rankedTocado: boolean;
+}
+
 export interface EstadoBorradores {
-  version: 1;
+  version: 2;
   mesa: string;
   /** La ronda cuyo modal estaba abierto, o null. Es lo que se reabre al recargar. */
   abierta: number | null;
@@ -104,6 +130,21 @@ function leerFilasPersonaje(valor: unknown): Record<string, number> | undefined 
   return filas;
 }
 
+/** Los datos de la ronda, o undefined si no están o tienen mala forma. */
+function leerDatosRonda(valor: unknown): DatosRondaBorrador | undefined {
+  if (!esObjeto(valor)) return undefined;
+  const { nivel, isRanked, nivelTocado, rankedTocado } = valor;
+  if (typeof nivel !== "number" || !Number.isFinite(nivel)) return undefined;
+  if (
+    typeof isRanked !== "boolean" ||
+    typeof nivelTocado !== "boolean" ||
+    typeof rankedTocado !== "boolean"
+  ) {
+    return undefined;
+  }
+  return { nivel, isRanked, nivelTocado, rankedTocado };
+}
+
 /**
  * Lee el texto de localStorage. Ante cualquier duda (JSON roto, otra versión,
  * forma inesperada) devuelve null: un borrador dudoso se tira, no se aplica.
@@ -116,7 +157,7 @@ export function parsearEstado(texto: string | null): EstadoBorradores | null {
   } catch {
     return null;
   }
-  if (!esObjeto(crudo) || crudo.version !== 1 || typeof crudo.mesa !== "string") return null;
+  if (!esObjeto(crudo) || crudo.version !== 2 || typeof crudo.mesa !== "string") return null;
   if (!esObjeto(crudo.rondas)) return null;
   const abierta = typeof crudo.abierta === "number" ? crudo.abierta : null;
 
@@ -130,16 +171,20 @@ export function parsearEstado(texto: string | null): EstadoBorradores | null {
       typeof b.actualizado === "string"
     ) {
       const filasPersonaje = leerFilasPersonaje(b.filasPersonaje);
+      // Con mala forma se descarta sólo esta parte: el modal vuelve al nivel
+      // heredado o automático, y el resto del borrador sigue valiendo.
+      const datosRonda = leerDatosRonda(b.ronda);
       rondas[ronda] = {
         base: b.base,
         jugadores: b.jugadores,
         ...(filasPersonaje ? { filasPersonaje } : {}),
         dinamicos: b.dinamicos,
+        ...(datosRonda ? { ronda: datosRonda } : {}),
         actualizado: b.actualizado,
       };
     }
   }
-  return { version: 1, mesa: crudo.mesa, abierta, rondas };
+  return { version: 2, mesa: crudo.mesa, abierta, rondas };
 }
 
 const fresco = (b: BorradorRonda, ahora: Date): boolean => {
@@ -199,7 +244,7 @@ export function conBorrador(
     }
   }
   rondas[String(ronda)] = { ...borrador, actualizado: ahora.toISOString() };
-  return { version: 1, mesa, abierta: ronda, rondas };
+  return { version: 2, mesa, abierta: ronda, rondas };
 }
 
 /** Tras Submit: la ronda ya está en `playerScores`, su borrador sobra. */
@@ -213,7 +258,7 @@ export function sinBorrador(
   return { ...estado, rondas, abierta: estado.abierta === ronda ? null : estado.abierta };
 }
 
-/** Al cerrar el modal (Submit, Cancel o clic fuera): no reabrirlo al recargar. */
+/** Al cerrar el modal (Submit, Save & Close o clic fuera): no reabrirlo al recargar. */
 export function cerrado(estado: EstadoBorradores | null): EstadoBorradores | null {
   return estado ? { ...estado, abierta: null } : null;
 }

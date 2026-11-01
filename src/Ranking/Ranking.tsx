@@ -6,16 +6,17 @@ import players from "./players.json";
 import RankingModal from "../RankingModal";
 import { useLocalStorage } from "@uidotdev/usehooks";
 import GuardarPartida from "./GuardarPartida";
+import SesionOrganizador from "./SesionOrganizador";
 import RawData from "./RawData";
 import ImportarRawData from "./ImportarRawData";
+import { useAuth } from "../supabase/useAuth";
 import { formatRawData, type RawDataPartida } from "./formatoRawData";
+import { NIVELES_PARTIDA } from "./niveles";
 import {
-  esNivelPartida,
-  NIVEL_MAXIMO,
-  NIVEL_MINIMO,
-  NIVELES_PARTIDA,
-  siguienteNivelEntero,
-} from "./niveles";
+  calcularAvisoNivel,
+  nivelAutomaticoMesa,
+  valoresInicialesRonda,
+} from "./datosRonda";
 import {
   baseDeRonda,
   cerrado,
@@ -26,7 +27,9 @@ import {
 } from "../RankingModal/borrador";
 import {
   buildFilas,
+  datosDePartidas,
   emparejarFilas,
+  muertosDeFilas,
   type CrearTorneoResultado,
 } from "../supabase/crearTorneo";
 import ErrorConexion from "../ui/ErrorConexion";
@@ -66,7 +69,26 @@ export interface GameScore {
   spyRebelKilled: number;
   spyFinalDuel: boolean;
   spyFinalTrio: boolean;
+  /**
+   * `partidas.nivel` de esta ronda: lo elige el modal y va tal cual a la base
+   * de datos. Null mientras la ronda no se ha enviado con Submit. Es de cada
+   * ronda y no de la sesión: alguien puede subir de nivel a mitad del torneo.
+   */
+  nivel: number | null;
+  /** `partidas.is_ranked` de esta ronda. Null mientras no se ha enviado. */
+  isRanked: boolean | null;
 }
+
+/** Una ronda sin rellenar. */
+const gameScoreVacio = (): GameScore => ({
+  winner: null,
+  loyalDeathOnLastRebelDeath: 0,
+  spyRebelKilled: 0,
+  spyFinalDuel: false,
+  spyFinalTrio: false,
+  nivel: null,
+  isRanked: null,
+});
 
 export interface TournamentData {
   torneoId: string;
@@ -112,9 +134,10 @@ const CACHE_JUGADORES = "jugadoresCache-v1";
  *
  * **Sólo se guardan los jugadores.** Los niveles y los torneos no, a propósito:
  * un nombre viejo es inofensivo (lo caza el aviso de jugadores no registrados, y
- * en último término la clave ajena), pero un nivel viejo entraría tal cual en
- * `partidas.nivel` y sería un dato mal guardado sin que nada chille. Cuando no
- * hay conexión, el nivel se comprueba a mano y la pantalla lo dice.
+ * en último término la clave ajena), pero un nivel viejo propondría un nivel de
+ * partida equivocado, que entraría tal cual en `partidas.nivel` sin que nada
+ * chille. Cuando no hay conexión, el nivel se comprueba a mano en cada ronda y
+ * la pantalla lo dice.
  */
 interface CacheJugadores {
   /** ISO del momento en que se leyó. */
@@ -176,22 +199,10 @@ function formatearFechaCache(iso: string): string {
 const SCORING_SYSTEM = "2024-01-01";
 
 /*
- * Los niveles de partida válidos (1..15 y 6.5) viven en ./niveles.ts.
- *
- * Ojo: el valor inicial de `gameLevel`, el caso "sin jugadores" de
- * `calculateMinLevel` y las opciones del desplegable salen todos de ahí. Un
- * `gameLevel` que no esté en NIVELES_PARTIDA no marcaría ninguna opción, el
- * navegador pintaría la primera y se guardaría un valor distinto del que se ve.
+ * El nivel y el ranked se eligen en el modal de cada ronda y viven en
+ * `GameScore.nivel` / `GameScore.isRanked` (ver ./datosRonda.ts). Los niveles
+ * válidos (1..15 y 6.5) están en ./niveles.ts.
  */
-
-/** `partidas.nivel` es numeric: 9.0 debe verse "9", pero existe el nivel 6.5. */
-const formatearNivel = (nivel: number): string => String(Number(nivel));
-
-/** "Alig", "Alig y Han Jin", "Alig, Han Jin y Miquel". */
-const listarNombres = (nombres: string[]): string =>
-  nombres.length <= 1
-    ? nombres.join("")
-    : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
 
 /**
  * Fecha de la sesión de juego, en formato ISO.
@@ -230,6 +241,15 @@ function bandoGanador(ronda: PlayerScore[]): string | null {
 Modal.setAppElement("#root");
 
 const Ranking = () => {
+  /*
+   * Una única instancia de useAuth() para toda la pantalla. La comparten la
+   * cabecera (SesionOrganizador), el bloque de guardar (GuardarPartida) y el
+   * modal de ronda (su botón de Telegram). Elevarla aquí evita dos
+   * suscripciones a la sesión y dos llamadas a soy_organizador(); no se usa un
+   * contexto porque los consumidores son hijos directos.
+   */
+  const auth = useAuth();
+
   const [monthsFilter, setMonthsFilter] = useState<number>(3);
 
   /**
@@ -364,28 +384,22 @@ const Ranking = () => {
     "playerChoice-v1",
     []
   );
+  /*
+   * `-v2` desde que el nivel y el ranked son de cada ronda (van en GameScore).
+   * Lo guardado con `-v1` se abandona sin convertir: el cambio se desplegó con
+   * la web en mantenimiento y todo el mundo empezó de cero. Por lo mismo ya no
+   * se usan `gameLevel-v1`, `gameLevelElegidoAMano-v1` ni `isRanked-v1`.
+   */
   const [playerScores, setPlayerScores] = useLocalStorage<PlayerScore[][]>(
-    "playerScore-v1",
+    "playerScore-v2",
     []
   );
   const [gameScores, setGameScores] = useLocalStorage<GameScore[]>(
-    "gameScore-v1",
+    "gameScore-v2",
     []
   );
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [isOpen, setIsOpen] = React.useState(false);
-  /*
-   * En localStorage: el nivel es lo que va a `partidas.nivel`, y una recarga
-   * (el móvil en standby durante la partida) no puede cambiarlo por detrás.
-   * Un valor guardado que no sea una opción del desplegable (versión vieja,
-   * a mano) se trata como el mínimo: si no, el desplegable no marcaría ninguna
-   * opción y se guardaría un valor distinto del que se ve.
-   */
-  const [gameLevelGuardado, setGameLevel] = useLocalStorage<number>(
-    "gameLevel-v1",
-    NIVEL_MINIMO
-  );
-  const gameLevel = esNivelPartida(gameLevelGuardado) ? Number(gameLevelGuardado) : NIVEL_MINIMO;
   const [gameDescription, setGameDescription] = useLocalStorage<string>(
     "gameDescription-v1",
     ""
@@ -394,7 +408,6 @@ const Ranking = () => {
     "lastTorneoId-v1",
     ""
   );
-  const [isRanked, setIsRanked] = useLocalStorage<boolean>("isRanked-v1", true);
   const [tournamentsData, setTournamentsData] = useState<TournamentData[]>([]);
   const [tournamentCheckMessage, setTournamentCheckMessage] = useState<string>("");
   const [activeTournament, setActiveTournament] = useState<TournamentData | null>(null);
@@ -404,18 +417,6 @@ const Ranking = () => {
   const [hasBeenRandomized, setHasBeenRandomized] = useState<boolean>(false);
   const [playerLevels, setPlayerLevels] = useState<Map<string, PlayerLevel>>(new Map());
   /**
-   * Si alguien ha tocado el desplegable de nivel a mano.
-   *
-   * Existe para que el recálculo automático no le pise la elección. Se guarda
-   * en localStorage junto con el nivel: antes no se persistía, y una recarga a
-   * mitad de partida devolvía el nivel al automático en silencio. Cambiar la
-   * mesa sigue poniéndolo a false.
-   */
-  const [gameLevelElegidoAMano, setGameLevelElegidoAMano] = useLocalStorage<boolean>(
-    "gameLevelElegidoAMano-v1",
-    false
-  );
-  /**
    * La fecha que traía un Raw Data importado, o null si la partida es de hoy.
    *
    * Sin esto, importar el texto de la sesión de anoche la guardaría con la fecha
@@ -423,8 +424,8 @@ const Ranking = () => {
    * cuenta la partida y alimenta el filtro de meses del informe de niveles, así
    * que no es un detalle cosmético.
    *
-   * No se persiste, y se descarta al cambiar la mesa, por lo mismo que
-   * `gameLevelElegidoAMano`: era la fecha de otra partida.
+   * No se persiste, y se descarta al cambiar la mesa: era la fecha de otra
+   * partida.
    */
   const [fechaImportada, setFechaImportada] = useState<string | null>(null);
 
@@ -432,133 +433,20 @@ const Ranking = () => {
   const fechaPartida = fechaImportada ?? fechaDeHoy();
 
   /**
-   * Nivel de partida que se propone: el del jugador menos veterano de la mesa.
-   *
-   * Sin nivel cuenta como nivel 1, no como "no se sabe". Son dos casos:
-   * el jugador que aún no tiene `max_nivel_jugado` (114 de 174) y el que se
-   * acaba de crear en el selector y no está en la tabla. En los dos, lo correcto
-   * es empezar por el principio, y además arrastra el mínimo hacia abajo, que es
-   * el lado seguro: una mesa se juega al nivel del que menos sabe.
-   *
-   * Descartarlos, que es lo que se hacía antes, proponía el nivel del veterano
-   * de un grupo de novatos.
+   * El nivel automático de la mesa (el mínimo), o null si los niveles de los
+   * jugadores no han llegado todavía. Es la semilla del desplegable del modal
+   * cuando ninguna ronda anterior trae nivel. Ver ./datosRonda.ts.
    */
-  const calculateMinLevel = useCallback((players: string[]) => {
-    // Sin jugadores no hay nada que calcular. Se devuelve el mínimo válido, no 0:
-    // vaciar el selector dejaba el nivel en 0, y el 0 ya no existe como opción.
-    if (players.length === 0) return NIVEL_MINIMO;
-    const levels = players.map(
-      (player) => playerLevels.get(player)?.nivel ?? NIVEL_MINIMO
-    );
-    return Math.min(...levels);
-  }, [playerLevels]);
-
-  /**
-   * Recalcula el nivel cuando llegan los niveles de los jugadores.
-   *
-   * Hace falta porque la selección de jugadores se restaura del navegador de
-   * forma inmediata, pero los niveles tardan lo que tarde la consulta. Sin esto,
-   * al recargar la página el nivel se quedaba en su valor inicial hasta que
-   * alguien tocaba el selector, y ese valor acabaría tal cual en la base de datos
-   * y en el `SET @nivel` del SQL que se genera.
-   *
-   * No se toca el nivel si ya lo han elegido a mano, ni antes de que lleguen los
-   * datos: con el mapa vacío, `calculateMinLevel` daría 1 para todo el mundo por
-   * la regla de "sin nivel = 1", y eso sería inventarse un dato.
-   */
-  useEffect(() => {
-    if (gameLevelElegidoAMano) return;
-    if (playerChoice.length === 0) return;
-    if (playerLevels.size === 0) return;
-    setGameLevel(calculateMinLevel(playerChoice));
-  }, [playerLevels, playerChoice, gameLevelElegidoAMano, calculateMinLevel]);
-
-  /**
-   * El nivel que el cálculo automático propone para esta mesa.
-   *
-   * Es lo mismo que se le pone al desplegable, pero se necesita aparte: el
-   * aviso de abajo tiene que hablar del nivel de la mesa aunque alguien haya
-   * movido el desplegable a mano.
-   */
-  const nivelMesa = useMemo(
-    () => calculateMinLevel(playerChoice),
-    [calculateMinLevel, playerChoice]
+  const nivelAutomatico = useMemo(
+    () => nivelAutomaticoMesa(playerChoice, playerLevels),
+    [playerChoice, playerLevels]
   );
 
-  /**
-   * Aviso de "puede que esta partida haga subir de nivel". Null si no procede.
-   *
-   * El nivel que propone `calculateMinLevel` es `max_nivel_jugado`: lo que el
-   * jugador ha jugado, no lo que se ha ganado. Cuando alguien ha desbloqueado
-   * por experiencia un nivel que todavía no ha jugado, puede subir en cualquier
-   * momento y nadie sabe si es hoy, así que el número del desplegable es una
-   * conjetura y hay que preguntar. Esa condición es exactamente
-   * `nivel_desbloqueado > max_nivel_jugado`, que es el `completo` de
-   * `v_nivel_jugadores`, el 100 % verde del informe "Nivel jugadores" (ver
-   * BD/migration/pg/09_v_nivel_jugadores.sql). Comprobado contra los datos: 0
-   * discrepancias entre las dos formas de calcularlo.
-   *
-   * Tres decisiones que no son adivinables:
-   *
-   *   - Tienen que estar listos **todos** los que empatan en el mínimo, no uno.
-   *     Si B también está a nivel 7 y no ha desbloqueado el 8, la mesa se juega
-   *     a 7 y no hay nada que decidir: avisar ahí sería ruido. Y subir el nivel
-   *     ascendería a B sin haberlo ganado, porque el paso 5 de `crear_torneo`
-   *     sube `jugadores.nivel` al nivel de la partida.
-   *
-   *   - Se propone **un escalón**, no el nivel desbloqueado. Los dos números
-   *     pueden estar muy separados: hay jugadores con 9 jugado y 15
-   *     desbloqueado, y proponer 15 no tiene sentido. El desbloqueado se enseña
-   *     como dato, y el escalón se acota a él (con un nivel .5 jugado, +1 se
-   *     pasaría de largo) y a NIVEL_MAXIMO.
-   *
-   *   - `nivelDesbloqueado` undefined es "esta fuente no lo sabe" (Google
-   *     Sheets) y null es "no ha desbloqueado nada": en los dos casos no se
-   *     afirma nada. Con `nivel` null tampoco. Es la semántica de la base de
-   *     datos: `nivel_desbloqueado > max_nivel_jugado` con un NULL no es falso,
-   *     es desconocido, y `completo` sale NULL.
-   */
-  const avisoNivel = useMemo(() => {
-    if (playerChoice.length === 0 || playerLevels.size === 0) return null;
-
-    const enElMinimo = playerChoice.filter(
-      (player) => (playerLevels.get(player)?.nivel ?? NIVEL_MINIMO) === nivelMesa
-    );
-
-    const listos: { nombre: string; desbloqueado: number }[] = [];
-    for (const nombre of enElMinimo) {
-      const fila = playerLevels.get(nombre);
-      const desbloqueado = fila?.nivelDesbloqueado;
-      if (!fila || fila.nivel === null) continue;
-      if (desbloqueado === null || desbloqueado === undefined) continue;
-      if (desbloqueado > fila.nivel) listos.push({ nombre, desbloqueado });
-    }
-    if (listos.length === 0 || listos.length !== enElMinimo.length) return null;
-
-    const desbloqueado = Math.min(...listos.map((l) => l.desbloqueado));
-    const uno = listos.length === 1;
-    return {
-      jugadores: listos.map((l) => l.nombre),
-      desbloqueado,
-      // El siguiente ENTERO: el 6.5 no cuenta como escalón (los niveles que se
-      // desbloquean por experiencia son enteros), así que desde 6 y desde 6.5
-      // se propone el 7. Con nivelMesa = 15 no se llega aquí: nadie desbloquea
-      // por encima del máximo.
-      siguiente: Math.min(
-        NIVEL_MAXIMO,
-        desbloqueado,
-        siguienteNivelEntero(nivelMesa) ?? NIVEL_MAXIMO
-      ),
-      // La concordancia se resuelve aquí y no en el JSX: intercalar
-      // condicionales en el texto acaba comiéndose los espacios.
-      verbos: {
-        marcar: uno ? "marca" : "marcan",
-        estar: uno ? "está" : "están",
-        tener: uno ? "tiene" : "tienen",
-        subir: uno ? "sube" : "suben",
-      },
-    };
-  }, [playerChoice, playerLevels, nivelMesa]);
+  /** "Puede que hoy suba de nivel": lo pinta el modal, bajo el desplegable. */
+  const avisoNivel = useMemo(
+    () => calcularAvisoNivel(playerChoice, playerLevels),
+    [playerChoice, playerLevels]
+  );
 
   // Función para verificar si los jugadores actuales ya han jugado un torneo juntos
   const checkTournamentHistory = useCallback((currentPlayers: string[]) => {
@@ -646,6 +534,8 @@ const Ranking = () => {
         for (let round = 1; round <= maxRound; round++) {
           const roundData = tournamentData.get(round);
           if (roundData) {
+            // Nivel y ranked son de la partida: el mismo en todas sus celdas.
+            const unaCelda = roundData.values().next().value;
             const roundScores: PlayerScore[] = tournamentOrder.map(player => {
               const playerData = roundData.get(player);
               if (playerData) {
@@ -667,13 +557,12 @@ const Ranking = () => {
             });
             importedScores.push(roundScores);
             
-            // Crear GameScore para esta ronda (valores por defecto)
+            // GameScore de la ronda ya jugada. Su nivel y su ranked son los que
+            // heredará la ronda siguiente al abrir el modal.
             importedGameScores.push({
-              winner: null,
-              loyalDeathOnLastRebelDeath: 0,
-              spyRebelKilled: 0,
-              spyFinalDuel: false,
-              spyFinalTrio: false
+              ...gameScoreVacio(),
+              nivel: unaCelda?.nivel ?? null,
+              isRanked: unaCelda?.isRanked ?? null,
             });
           }
         }
@@ -708,6 +597,26 @@ const Ranking = () => {
   );
 
   /**
+   * Nivel y ranked de cada ronda que se va a enviar, sacados de las filas (ver
+   * `datosDePartidas`). De aquí salen el payload, el Raw Data y el resumen.
+   */
+  const datosPartidas = useMemo(
+    () => datosDePartidas(filasParaBD, (n) => gameScores[n - 1]),
+    [filasParaBD, gameScores]
+  );
+
+  /**
+   * Quién murió en cada ronda, para el aviso de Telegram. Sale de las mismas
+   * filas que todo lo demás (emparejarFilas trae `vive`), así que las filas
+   * importadas quedan fuera igual que en el envío. La muerte no se guarda; es
+   * sólo contexto en el mensaje.
+   */
+  const muertos = useMemo(
+    () => muertosDeFilas(emparejarFilas(playerScores, playerChoice)),
+    [playerScores, playerChoice]
+  );
+
+  /**
    * La partida en el formato que se comparte. Ver ./formatoRawData.ts.
    *
    * Las filas salen de `emparejarFilas`, de donde salen también las de
@@ -719,10 +628,13 @@ const Ranking = () => {
       fecha: fechaPartida,
       scoringSystem: SCORING_SYSTEM,
       torneoId: torneoIdParaBD,
-      nivel: gameLevel,
-      isRanked,
       descripcion: gameDescription,
       jugadores: playerChoice,
+      rondas: datosPartidas.partidas.map((p) => ({
+        numPartida: p.num_partida,
+        nivel: p.nivel,
+        isRanked: p.is_ranked,
+      })),
       filas: emparejarFilas(playerScores, playerChoice).map((fila) => ({
         numPartida: fila.num_partida,
         jugador: fila.jugador,
@@ -733,10 +645,9 @@ const Ranking = () => {
       })),
     }),
     [
+      datosPartidas,
       fechaPartida,
       gameDescription,
-      gameLevel,
-      isRanked,
       playerChoice,
       playerScores,
       torneoIdParaBD,
@@ -803,14 +714,15 @@ const Ranking = () => {
 
       // El resto de GameScore (muertes de leales, duelo final...) no viaja en el
       // texto: son datos de entrada del cálculo, y los puntos ya están
-      // calculados. Sólo se reconstruye el bando ganador, que sí se deduce de
-      // los roles, para que reabrir una ronda parta del bando correcto.
-      const games: GameScore[] = scores.map((ronda) => ({
+      // calculados. Se reconstruye el bando ganador, que se deduce de los roles,
+      // para que reabrir una ronda parta del bando correcto; y el nivel y el
+      // ranked de cada ronda, que sí viajan y van tal cual a la base de datos.
+      const datosRonda = new Map(partida.rondas.map((r) => [r.numPartida, r]));
+      const games: GameScore[] = scores.map((ronda, i) => ({
+        ...gameScoreVacio(),
         winner: bandoGanador(ronda),
-        loyalDeathOnLastRebelDeath: 0,
-        spyRebelKilled: 0,
-        spyFinalDuel: false,
-        spyFinalTrio: false,
+        nivel: datosRonda.get(i + 1)?.nivel ?? null,
+        isRanked: datosRonda.get(i + 1)?.isRanked ?? null,
       }));
 
       setPlayerChoice(jugadores);
@@ -820,19 +732,12 @@ const Ranking = () => {
       setOriginalPlayerOrder([]);
       setHasBeenRandomized(false);
       setGameDescription(partida.descripcion);
-      setIsRanked(partida.isRanked);
       setLastTorneoId(partida.torneoId === null ? "" : String(partida.torneoId));
       setFechaImportada(partida.fecha);
-      // El nivel del texto es el de la partida que ya se jugó, así que manda
-      // sobre el cálculo automático: sin esto, el efecto de recálculo lo
-      // pisaría en cuanto lleguen los niveles de los jugadores.
-      setGameLevelElegidoAMano(true);
-      setGameLevel(partida.nivel);
     },
     [
       setGameDescription,
       setGameScores,
-      setIsRanked,
       setLastTorneoId,
       setPlayerChoice,
       setPlayerScores,
@@ -899,17 +804,14 @@ const Ranking = () => {
           imported: false,
         })));
       }
-      while (newGameScores.length < currentRound) {
-        newGameScores.push({
-          winner: null,
-          loyalDeathOnLastRebelDeath: 0,
-          spyRebelKilled: 0,
-          spyFinalDuel: false,
-          spyFinalTrio: false,
-        });
-      }
     }
-    
+    // gameScores puede ser más corto que playerScores (datos de antes, o una
+    // importación): se alarga por separado para que el ganador, el nivel y el
+    // ranked de esta ronda no se pierdan.
+    while (newGameScores.length < currentRound) {
+      newGameScores.push(gameScoreVacio());
+    }
+
     // Actualizar la ronda actual
     newPlayerScores = newPlayerScores.map((playerScore, index) =>
       index === currentRound - 1 ? player : playerScore
@@ -992,6 +894,7 @@ const Ranking = () => {
     <div className="Ranking-component">
       <Navbar />
       <h1 className="text-3xl font-bold underline m-6">Generador de puntuaciones 2024-2026</h1>
+      <SesionOrganizador auth={auth} />
       <div className="mb-4">
       <a
         href="/Puntuaciones_2024_v2.pdf"
@@ -1011,18 +914,7 @@ const Ranking = () => {
         onChange={(e) => setGameDescription(e.target.value)}
         className="mt-1 border border-gray-300 rounded px-2 py-1"
       />
-      <div className="flex items-center justify-center mt-4">
-        <label htmlFor="isRanked" className="text-lg font-medium">
-          Ranked:
-        </label>
-        <input
-          id="isRanked"
-          type="checkbox"
-          checked={isRanked}
-          onChange={(e) => setIsRanked(e.target.checked)}
-          className="ml-2 w-4 h-4"
-        />
-      </div>
+      {/* El nivel y el ranked ya no van aquí: se eligen en cada ronda. */}
     </div>      
       <div className="flex items-center justify-center gap-2 mb-4">
         <input
@@ -1093,7 +985,8 @@ const Ranking = () => {
               </li>
               <li>
                 El nivel de la partida no se autocalcula:{" "}
-                <strong>compruébalo a mano</strong> en el desplegable.
+                <strong>compruébalo a mano en cada ronda</strong>, en el
+                desplegable del modal.
               </li>
               <li>
                 No se avisa si esta mesa ya jugó un torneo junta, y no se puede
@@ -1149,11 +1042,9 @@ const Ranking = () => {
           
           setIntroductionOrder(updatedIntroductionOrder);
           
-          // Auto-seleccionar el nivel mínimo de los jugadores. Cambiar la mesa
-          // descarta el nivel que se hubiera puesto a mano, y la fecha que
-          // trajera un Raw Data importado: eran de otra partida.
-          setGameLevelElegidoAMano(false);
-          setGameLevel(calculateMinLevel(selectedValues));
+          // Cambiar la mesa descarta la fecha que trajera un Raw Data
+          // importado: era de otra partida. El nivel y el ranked se van con
+          // las rondas, que se vacían aquí abajo.
           setFechaImportada(null);
           
           setPlayerScores(
@@ -1168,13 +1059,7 @@ const Ranking = () => {
             )
           );
           setGameScores(
-            new Array<GameScore>(selectedValues.length).fill({
-              winner: null,
-              loyalDeathOnLastRebelDeath: 0,
-              spyRebelKilled: 0,
-              spyFinalDuel: false,
-              spyFinalTrio: false,
-            })
+            Array.from({ length: selectedValues.length }, gameScoreVacio)
           );
           // Resetear estados de randomización cuando cambian los jugadores
           setOriginalPlayerOrder([]);
@@ -1195,27 +1080,12 @@ const Ranking = () => {
           {tournamentCheckMessage}
         </div>
       )}
+      {/*
+        El nivel de la partida ya no se elige aquí sino en el modal de cada
+        ronda, con su aviso de "puede que hoy suba de nivel".
+      */}
       <div className="flex items-center justify-center mt-2">
-        <label htmlFor="gameLevel" className="text-sm font-medium">
-          Game level:
-        </label>
-        <select
-          id="gameLevel"
-          value={gameLevel}
-          onChange={(e) => {
-            // Marcar la elección como manual para que el recálculo no la pise.
-            setGameLevelElegidoAMano(true);
-            setGameLevel(Number(e.target.value));
-          }}
-          className="ml-2 border border-gray-300 rounded px-2 py-1"
-        >
-          {NIVELES_PARTIDA.map((nivel) => (
-            <option key={nivel} value={nivel}>
-              {formatearNivel(nivel)}
-            </option>
-          ))}
-        </select>
-        <label htmlFor="lastTorneoId" className="ml-4 text-sm font-medium">
+        <label htmlFor="lastTorneoId" className="text-sm font-medium">
           Continuación de torneo:
         </label>
         <input
@@ -1228,33 +1098,6 @@ const Ranking = () => {
           className="ml-2 border border-gray-300 rounded px-2 py-1"
         />
       </div>
-      {/*
-        Aviso de "puede que hoy suba de nivel".
-
-        Sólo informa: el desplegable sigue siendo la única fuente de
-        `partidas.nivel`, así que quien decide es la persona. Desaparece en
-        cuanto el desplegable llega al nivel siguiente, que es la forma de
-        contestar "sí, hoy sube"; contestar "no" es dejarlo como está, y eso no
-        se puede distinguir de no haberlo leído, así que el aviso se queda.
-
-        role="status" y no "alert": no es un error, y el texto lleva el aviso
-        escrito, no sólo el color de fondo.
-      */}
-      {avisoNivel !== null && gameLevel < avisoNivel.siguiente && (
-        <p
-          role="status"
-          className="mt-2 mx-auto max-w-2xl rounded border border-yellow-300 bg-yellow-100 p-2 text-sm text-yellow-800"
-        >
-          ⚠️ {listarNombres(avisoNivel.jugadores)} {avisoNivel.verbos.marcar} el
-          nivel de la mesa ({formatearNivel(nivelMesa)}) y {avisoNivel.verbos.estar}{" "}
-          al 100 % de experiencia: {avisoNivel.verbos.tener} desbloqueado al menos
-          el nivel {formatearNivel(avisoNivel.desbloqueado)} sin haberlo jugado.
-          Comprueba
-          si esta partida es de nivel {formatearNivel(nivelMesa)} o si en ella{" "}
-          {avisoNivel.verbos.subir} a {formatearNivel(avisoNivel.siguiente)}, y
-          ajusta el desplegable.
-        </p>
-      )}
       <button
         type="button"
         className="mt-2 ml-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:ring-4 focus:outline-none focus:ring-green-300"
@@ -1313,7 +1156,7 @@ const Ranking = () => {
                 <tr className="bg-gray-50 border-b">
                   <th className="p-2 border-r cursor-pointer text-sm font-thin text-gray-500">
                     <div className="flex items-center justify-center">
-                      Round
+                      Game
                     </div>
                   </th>
                   {playerChoice.map((player, index) => (
@@ -1395,15 +1238,17 @@ const Ranking = () => {
               </tbody>
             </table>
             <GuardarPartida
+              auth={auth}
               filas={filasParaBD}
+              muertos={muertos}
               jugadores={playerChoice}
               torneoId={torneoIdParaBD}
               descripcion={gameDescription}
               /* La del Raw Data importado si hay uno; si no, la de hoy. */
               fecha={fechaPartida}
               scoringSystem={SCORING_SYSTEM}
-              nivel={gameLevel}
-              isRanked={isRanked}
+              partidas={datosPartidas.partidas}
+              rondasIncompletas={datosPartidas.incompletas}
               onGuardado={handleGuardado}
             />
             <RawData texto={rawText} vacio={filasParaBD.length === 0} />
@@ -1412,7 +1257,7 @@ const Ranking = () => {
         <Modal
           isOpen={isOpen}
           onRequestClose={closeModal}
-          contentLabel="Round Modal"
+          contentLabel="Game Modal"
           // Con clases propias react-modal no pone sus estilos en línea (un
           // recuadro con inset de 40px que no cabía en el móvil). El diseño
           // está en ../RankingModal/RankingModal.css.
@@ -1422,8 +1267,15 @@ const Ranking = () => {
           <RankingModal
             // Un montaje por ronda: el modal lee su borrador al montarse.
             key={currentRound}
+            auth={auth}
             personajes={personajes}
-            nivel={gameLevel}
+            valoresIniciales={valoresInicialesRonda(
+              gameScores,
+              currentRound,
+              nivelAutomatico
+            )}
+            nivelAutomatico={nivelAutomatico}
+            avisoNivel={avisoNivel}
             players={playerChoice}
             currentRound={currentRound}
             previousPoints={playerScores[currentRound - 1]}

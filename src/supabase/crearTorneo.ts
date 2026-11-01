@@ -15,14 +15,26 @@ export interface FilaPuntuacion {
   personaje: string | null;
 }
 
+/**
+ * Lo que es de cada partida y no de cada jugador: va a `public.partidas`.
+ *
+ * Desde BD/migration/pg/23_datos_por_partida.sql, crear_torneo() exige una
+ * entrada por cada `num_partida` de `filas`, ni una más ni una menos, y ya no
+ * lee `nivel` ni `is_ranked` de la raíz del payload.
+ */
+export interface PartidaPayload {
+  num_partida: number;
+  nivel: number;
+  is_ranked: boolean;
+}
+
 export interface CrearTorneoPayload {
   /** null crea un torneo nuevo; un id continúa uno existente. */
   torneo_id: number | null;
   descripcion: string;
   fecha: string;
   scoring_system: string;
-  nivel: number;
-  is_ranked: boolean;
+  partidas: PartidaPayload[];
   filas: FilaPuntuacion[];
 }
 
@@ -32,12 +44,66 @@ export interface CrearTorneoResultado {
   torneo_creado: boolean;
   descripcion: string | null;
   fecha: string;
-  nivel: number;
-  is_ranked: boolean;
   scoring_system: string;
+  /** Los números de partida insertados. Es lo que recibe avisarPartida(). */
   partidas: number[];
+  /** Lo que quedó guardado de cada una. */
+  partidas_detalle: PartidaPayload[];
   puntuaciones_insertadas: number;
   jugadores_creados: string[];
+}
+
+/** El nivel y el ranked que la pantalla tiene apuntados para una ronda. */
+export interface DatosRonda {
+  nivel: number | null | undefined;
+  isRanked: boolean | null | undefined;
+}
+
+export interface DatosDePartidas {
+  partidas: PartidaPayload[];
+  /** Rondas con filas pero sin nivel o sin ranked: no se puede guardar. */
+  incompletas: number[];
+}
+
+/**
+ * Nivel y ranked de cada partida que se va a enviar.
+ *
+ * La lista sale de los `num_partida` de las FILAS, no de recorrer todas las
+ * rondas de la pantalla. Es lo que hace que una ronda importada con Continue
+ * Tournament (que `buildFilas` descarta) no se reenvíe como partida: si se
+ * enviara, crear_torneo() la rechazaría por "ronda con nivel pero ninguna
+ * puntuación", o por "ya tiene registrada la partida".
+ *
+ * Una ronda sin nivel o sin ranked va a `incompletas` en vez de rellenarse con
+ * un valor por defecto: el nivel multiplica la experiencia de toda la mesa, y
+ * un valor inventado entraría en la base de datos sin que nadie lo note.
+ */
+export function datosDePartidas(
+  filas: readonly { num_partida: number }[],
+  datosDe: (numPartida: number) => DatosRonda | null | undefined
+): DatosDePartidas {
+  const numeros = Array.from(new Set(filas.map((f) => f.num_partida))).sort(
+    (a, b) => a - b
+  );
+  const partidas: PartidaPayload[] = [];
+  const incompletas: number[] = [];
+
+  for (const num_partida of numeros) {
+    const datos = datosDe(num_partida);
+    const nivel = datos?.nivel;
+    const isRanked = datos?.isRanked;
+    if (
+      typeof nivel !== "number" ||
+      !Number.isFinite(nivel) ||
+      typeof isRanked !== "boolean"
+    ) {
+      incompletas.push(num_partida);
+      continue;
+    }
+    partidas.push({ num_partida, nivel, is_ranked: isRanked });
+  }
+
+  return { partidas, incompletas };
 }
 
 /**
@@ -149,13 +215,26 @@ export async function jugadoresDesconocidos(
   return buscados.filter((n) => !conocidos.has(n.toLocaleLowerCase()));
 }
 
+/** Un jugador que murió en una ronda. Sólo para pintar "muere" en el aviso. */
+export interface MuertoAviso {
+  num_partida: number;
+  jugador: string;
+}
+
 /**
  * Avisa al grupo de Telegram de que se acaba de guardar una partida.
  *
- * La llamada manda **sólo** el id del torneo y los números de partida: el texto
- * del mensaje lo compone la Edge Function leyendo la base de datos. Si el
- * navegador mandara el texto, quien inserta podría guardar una cosa y anunciar
- * otra, y el aviso dejaría de servir para lo que existe.
+ * El id del torneo y los números de partida son la parte que la Edge Function
+ * recompone leyendo la base de datos: jugadores, roles, puntos y quién insertó
+ * salen de las tablas, no del navegador, para que quien inserta no pueda
+ * guardar una cosa y anunciar otra.
+ *
+ * `muertos` es la excepción, y a propósito: quién sobrevivió **no se guarda** en
+ * `puntuaciones` (ver crear_torneo), así que la función no puede recomponerlo.
+ * Viaja desde el cliente y es **sólo informativo** (contexto del estado final de
+ * la mesa). Esa línea no es, por tanto, testigo de nada: a diferencia de los
+ * puntos, nadie puede contrastarla contra la base de datos. Se asume porque las
+ * muertes no afectan al ranking.
  *
  * El token del bot vive en los secretos de Edge Functions, nunca aquí: todo lo
  * que empieza por `VITE_` acaba en el bundle, y el bundle está en un repositorio
@@ -167,21 +246,66 @@ export async function jugadoresDesconocidos(
  */
 export async function avisarPartida(
   torneoId: number,
-  partidas: number[]
+  partidas: number[],
+  muertos: MuertoAviso[] = []
 ): Promise<void> {
   const { error } = await getSupabase().functions.invoke("avisar-partida", {
-    body: { torneo_id: torneoId, partidas },
+    body: { torneo_id: torneoId, partidas, muertos },
   });
 
-  if (!error) return;
+  if (error) throw new Error(await detalleErrorFuncion(error));
+}
 
-  // functions.invoke no lee el cuerpo de una respuesta de error: deja la
-  // Response en `context` y devuelve un mensaje genérico ("Edge Function
-  // returned a non-2xx status code"), que no dice nada. El motivo de verdad
-  // (falta un secreto, el chat_id no es el del grupo, el bot fue expulsado) va
-  // en el JSON, así que hay que sacarlo de ahí.
+/**
+ * Los muertos de las filas que se van a guardar, para `avisarPartida`.
+ *
+ * Sale de las MISMAS filas que el resto del aviso (`emparejarFilas`, vía
+ * `FilaPuntuacionDetalle.vive`), así que lo que se anuncia muerto es lo que el
+ * organizador marcó muerto en el modal. Las filas importadas ya están excluidas
+ * de `filas`, igual que en el envío a la base de datos.
+ */
+export function muertosDeFilas(filas: FilaPuntuacionDetalle[]): MuertoAviso[] {
+  return filas
+    .filter((f) => !f.vive)
+    .map((f) => ({ num_partida: f.num_partida, jugador: f.jugador }));
+}
+
+/**
+ * Publica el enlace a una mesa en el tema de "mesas" del grupo de Telegram.
+ *
+ * A diferencia de avisarPartida, el **texto lo compone el cliente**: una mesa
+ * planificada (quién se sienta y con qué personaje) no está en la base de datos,
+ * así que la Edge Function no puede recomponerla. Por eso `avisar-mesa` recibe
+ * el mensaje ya hecho y sólo comprueba que quien llama es organizador antes de
+ * enviarlo. La función publica en el tema `telegramThreadMesaId`, distinto del
+ * de los avisos de partida guardada.
+ *
+ * Lanza si no se ha podido publicar; quien llama lo trata como un aviso: el
+ * enlace ya está copiado en el portapapeles, así que el envío al grupo es un
+ * extra, no el camino crítico.
+ */
+export async function avisarMesa(texto: string): Promise<void> {
+  const { error } = await getSupabase().functions.invoke("avisar-mesa", {
+    body: { texto },
+  });
+
+  if (error) throw new Error(await detalleErrorFuncion(error));
+}
+
+/**
+ * Saca el motivo de verdad de un error de functions.invoke.
+ *
+ * functions.invoke no lee el cuerpo de una respuesta de error: deja la Response
+ * en `context` y devuelve un mensaje genérico ("Edge Function returned a non-2xx
+ * status code"), que no dice nada. El motivo real (falta un secreto, el chat_id
+ * no es el del grupo, el bot fue expulsado, el tema no existe) va en el JSON.
+ */
+async function detalleErrorFuncion(error: {
+  message: string;
+  context?: unknown;
+}): Promise<string> {
   let detalle = error.message;
-  const contexto = (error as { context?: unknown }).context;
+  const contexto = error.context;
   if (contexto instanceof Response) {
     try {
       const cuerpo = (await contexto.json()) as { error?: string };
@@ -191,8 +315,7 @@ export async function avisarPartida(
       // mensaje genérico, que al menos dice que la llamada no llegó.
     }
   }
-
-  throw new Error(detalle);
+  return detalle;
 }
 
 /**

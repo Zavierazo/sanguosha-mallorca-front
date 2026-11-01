@@ -49,6 +49,9 @@ export async function parsearCatalogoPersonajes(
       `Faltan columnas de ficha en characters.xlsx: ${faltanColumnasFicha.join(", ")}.`
     );
   }
+  // Opcional a propósito: fuera de `columnasFicha` para que su ausencia no
+  // tumbe la carga del catálogo entero.
+  const columnaShortLore = encabezados.indexOf("shortLore");
   const formatoPorFila = extraerFormatoTextoExcel(archivo, encabezados);
 
   const personajes: Personaje[] = [];
@@ -143,6 +146,7 @@ export async function parsearCatalogoPersonajes(
       additionalSkills,
       faq,
       lore,
+      shortLore: columnaShortLore >= 0 ? textoCelda(columnaShortLore) : null,
       servidor: textoCelda(columnasFicha.servidor),
       expansion: textoCelda(columnasFicha.expansion),
       version: textoCelda(columnasFicha.version),

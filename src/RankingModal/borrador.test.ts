@@ -122,8 +122,66 @@ describe("ciclo de vida", () => {
 describe("parsearEstado: un borrador dudoso se tira", () => {
   it("JSON roto, otra versión o vacío dan null", () => {
     expect(parsearEstado("{roto")).toBeNull();
-    expect(parsearEstado(JSON.stringify({ ...conUno(), version: 2 }))).toBeNull();
+    // La v1 es la de antes de que el nivel fuera de cada ronda: no se convierte.
+    expect(parsearEstado(JSON.stringify({ ...conUno(), version: 1 }))).toBeNull();
+    expect(parsearEstado(JSON.stringify({ ...conUno(), version: 3 }))).toBeNull();
     expect(parsearEstado(null)).toBeNull();
     expect(parsearEstado("[]")).toBeNull();
+  });
+});
+
+describe("nivel y ranked de la ronda en el borrador", () => {
+  /*
+   * Save & Close tiene que conservar el nivel y el ranked elegidos: sin esto,
+   * reabrir la ronda (o recargar con el móvil en standby) los devolvería al
+   * heredado o al automático y se guardaría un nivel distinto del elegido.
+   */
+  const ronda = { nivel: 8, isRanked: false, nivelTocado: true, rankedTocado: true };
+  const conRonda = () =>
+    conBorrador(null, MESA, 2, { base: BASE_VACIA, ...datos, ronda }, T0);
+
+  it("sobreviven al viaje por localStorage", () => {
+    const e = parsearEstado(JSON.stringify(conRonda()));
+    expect(borradorDeRonda(e, MESA, 2, BASE_VACIA, T0)?.ronda).toEqual(ronda);
+  });
+
+  it("con mala forma se descartan, pero el resto del borrador se conserva", () => {
+    for (const malo of [
+      { nivel: "8", isRanked: false, nivelTocado: true, rankedTocado: true },
+      { nivel: 8, isRanked: null, nivelTocado: true, rankedTocado: true },
+      { nivel: 8, isRanked: false, rankedTocado: true },
+      { nivel: 8, isRanked: false, nivelTocado: true },
+      null,
+    ]) {
+      const estado = conRonda();
+      (estado.rondas["2"] as unknown as Record<string, unknown>).ronda = malo;
+      const b = borradorDeRonda(
+        parsearEstado(JSON.stringify(estado)),
+        MESA,
+        2,
+        BASE_VACIA,
+        T0
+      );
+      expect(b).not.toBeNull();
+      expect(b?.ronda).toBeUndefined();
+      expect(b?.jugadores).toEqual(datos.jugadores);
+    }
+  });
+
+  it("cambiar el nivel guardado de la ronda invalida el borrador", () => {
+    // La base incluye el GameScore entero, también nivel e isRanked: si la
+    // ronda se reimporta con otro nivel, el borrador ya no es de esta ronda.
+    const juego = (nivel: number) => ({
+      winner: "King",
+      loyalDeathOnLastRebelDeath: 0,
+      spyRebelKilled: 0,
+      spyFinalDuel: false,
+      spyFinalTrio: false,
+      nivel,
+      isRanked: true,
+    });
+    expect(baseDeRonda(mesa, undefined, juego(7))).not.toBe(
+      baseDeRonda(mesa, undefined, juego(8))
+    );
   });
 });

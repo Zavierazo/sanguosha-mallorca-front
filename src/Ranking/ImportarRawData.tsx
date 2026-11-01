@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
+  etiquetaRonda,
   parseRawData,
+  RAW_DATA_VERSION,
   type RawDataPartida,
   type ResultadoParseo,
 } from "./formatoRawData";
@@ -118,7 +120,8 @@ const ImportarRawData = ({
 
       <p className="mt-1 text-sm text-gray-600">
         Pega aquí el texto que te hayan mandado y la partida se carga sola:
-        jugadores, rondas, nivel, fecha y descripción. Después guárdala con
+        jugadores, partidas (con su nivel y si son ranked), fecha y
+        descripción. Después guárdala con
         <strong> Insertar partidas en la BD</strong>, al final de la página.
       </p>
 
@@ -142,7 +145,7 @@ const ImportarRawData = ({
         onPaste={handlePegar}
         rows={8}
         spellCheck={false}
-        placeholder={"Sanguosha Mallorca · Puntuaciones (formato v1)\nFecha: ..."}
+        placeholder={`Sanguosha Mallorca · Puntuaciones (formato v${RAW_DATA_VERSION})\nFecha: ...`}
         className="mt-1 w-full rounded border border-gray-300 p-2 font-mono text-xs"
       />
 
@@ -178,19 +181,18 @@ const ImportarRawData = ({
               <dt className="font-medium">Jugadores</dt>
               <dd>{resultado.partida.jugadores.join(", ")}</dd>
 
-              <dt className="font-medium">Rondas</dt>
+              <dt className="font-medium">Partidas</dt>
               <dd>
                 {rondas.join(", ")} ({resultado.partida.filas.length} filas)
+                <ul className="mt-1">
+                  {resultado.partida.rondas.map((r) => (
+                    <li key={r.numPartida}>{etiquetaRonda(r.numPartida, r)}</li>
+                  ))}
+                </ul>
               </dd>
 
               <dt className="font-medium">Fecha</dt>
               <dd>{resultado.partida.fecha}</dd>
-
-              <dt className="font-medium">Nivel</dt>
-              <dd>{resultado.partida.nivel}</dd>
-
-              <dt className="font-medium">Ranked</dt>
-              <dd>{resultado.partida.isRanked ? "sí" : "no"}</dd>
 
               <dt className="font-medium">Torneo</dt>
               <dd>

@@ -1,16 +1,38 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useAuth } from "../supabase/useAuth";
+import type { AuthState } from "../supabase/useAuth";
 import {
   avisarPartida,
   crearTorneo,
   jugadoresDesconocidos,
   type CrearTorneoResultado,
   type FilaPuntuacion,
+  type MuertoAviso,
+  type PartidaPayload,
 } from "../supabase/crearTorneo";
+import { etiquetaRonda } from "./formatoRawData";
 
 interface GuardarPartidaProps {
+  /**
+   * El estado de sesión, elevado a Ranking para que haya una sola instancia de
+   * useAuth() compartida con la cabecera (SesionOrganizador) y el modal de
+   * ronda. La UI de login ya no vive aquí; este componente sólo consume la
+   * sesión para decidir si puede guardar.
+   */
+  auth: AuthState;
   /** Las filas ya emparejadas jugador-puntuación. */
   filas: FilaPuntuacion[];
+  /**
+   * Quién murió en cada ronda (`muertosDeFilas`). Sólo para el aviso de
+   * Telegram: la muerte no se guarda ni se envía a crear_torneo().
+   */
+  muertos: MuertoAviso[];
+  /**
+   * Nivel y ranked de cada ronda de `filas`, de `datosDePartidas()`. Es de cada
+   * partida, no de la sesión: alguien puede subir de nivel a mitad del torneo.
+   */
+  partidas: PartidaPayload[];
+  /** Rondas con filas pero sin nivel o ranked apuntados: impiden guardar. */
+  rondasIncompletas: number[];
   /** Los jugadores de la mesa, para avisar de nombres no registrados. */
   jugadores: string[];
   /** null crea un torneo nuevo; un número continúa uno existente. */
@@ -18,8 +40,6 @@ interface GuardarPartidaProps {
   descripcion: string;
   fecha: string;
   scoringSystem: string;
-  nivel: number;
-  isRanked: boolean;
   /** Se llama tras un alta correcta, para fijar la continuación del torneo. */
   onGuardado: (resultado: CrearTorneoResultado) => void;
 }
@@ -37,18 +57,18 @@ type Estado = "idle" | "enviando" | "ok" | "error";
 type EstadoAviso = "idle" | "enviando" | "ok" | "error";
 
 const GuardarPartida = ({
+  auth,
   filas,
+  muertos,
+  partidas,
+  rondasIncompletas,
   jugadores,
   torneoId,
   descripcion,
   fecha,
   scoringSystem,
-  nivel,
-  isRanked,
   onGuardado,
 }: GuardarPartidaProps) => {
-  const auth = useAuth();
-
   const [estado, setEstado] = useState<Estado>("idle");
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [resultado, setResultado] = useState<CrearTorneoResultado | null>(null);
@@ -61,6 +81,7 @@ const GuardarPartida = ({
     (a, b) => a - b
   );
   const conPersonaje = filas.filter((f) => f.personaje).length;
+  const datosRonda = new Map(partidas.map((p) => [p.num_partida, p]));
 
   /**
    * Firma de lo que se va a guardar, como cadena.
@@ -74,8 +95,8 @@ const GuardarPartida = ({
    * borraría el mensaje de "guardado" justo después de mostrarlo.
    */
   const firma = useMemo(
-    () => JSON.stringify({ filas, descripcion, fecha, nivel, isRanked }),
-    [filas, descripcion, fecha, nivel, isRanked]
+    () => JSON.stringify({ filas, muertos, partidas, descripcion, fecha }),
+    [filas, muertos, partidas, descripcion, fecha]
   );
 
   const clavejugadores = useMemo(() => jugadores.join("\u0000"), [jugadores]);
@@ -129,8 +150,7 @@ const GuardarPartida = ({
           descripcion,
           fecha,
           scoring_system: scoringSystem,
-          nivel,
-          is_ranked: isRanked,
+          partidas,
           filas,
         },
         confirmarNuevos && nuevos.length > 0
@@ -146,7 +166,7 @@ const GuardarPartida = ({
       setAviso("enviando");
       setAvisoMensaje(null);
       try {
-        await avisarPartida(r.torneo_id, r.partidas);
+        await avisarPartida(r.torneo_id, r.partidas, muertos);
         setAviso("ok");
       } catch (e: unknown) {
         setAvisoMensaje(e instanceof Error ? e.message : String(e));
@@ -161,8 +181,8 @@ const GuardarPartida = ({
     descripcion,
     fecha,
     filas,
-    isRanked,
-    nivel,
+    muertos,
+    partidas,
     nuevos.length,
     onGuardado,
     scoringSystem,
@@ -185,6 +205,7 @@ const GuardarPartida = ({
   const puedeGuardar =
     auth.isOrganiser === true &&
     !sinDatos &&
+    rondasIncompletas.length === 0 &&
     !faltaConfirmarNuevos &&
     estado !== "enviando" &&
     estado !== "ok";
@@ -193,43 +214,19 @@ const GuardarPartida = ({
     <div className="mt-5 p-3 border border-gray-300 rounded text-start">
       <h3 className="text-lg font-medium">Guardar en la base de datos</h3>
 
-      {/* ---------------------------------------------------------------- */}
-      {/* Sesión                                                            */}
-      {/* ---------------------------------------------------------------- */}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {!auth.ready && (
-          <span className="text-sm text-gray-500">Comprobando sesión...</span>
-        )}
+      {/*
+        La sesión (entrar con Google, quién soy, salir, permisos) vive ahora en
+        SesionOrganizador, arriba en la cabecera de Ranking, para que al abrir
+        el modal de ronda el usuario ya pueda estar identificado. Aquí sólo se
+        consume `auth` para saber si se puede guardar.
+      */}
+      {!auth.ready && (
+        <p className="mt-2 text-sm text-gray-500">Comprobando sesión...</p>
+      )}
 
-        {auth.ready && !auth.session && (
-          <button
-            type="button"
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300"
-            onClick={auth.signInWithGoogle}
-          >
-            Entrar con Google
-          </button>
-        )}
-
-        {auth.ready && auth.session && (
-          <>
-            <span className="text-sm text-gray-700">
-              Sesión: <strong>{auth.email}</strong>
-            </span>
-            <button
-              type="button"
-              className="px-3 py-1 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 focus:ring-4 focus:outline-none focus:ring-gray-300"
-              onClick={auth.signOut}
-            >
-              Salir
-            </button>
-          </>
-        )}
-      </div>
-
-      {auth.error && (
-        <p role="alert" className="mt-2 text-sm text-red-700">
-          {auth.error}
+      {auth.ready && !auth.session && (
+        <p className="mt-2 text-sm text-gray-600">
+          Identifícate arriba con Google para poder guardar.
         </p>
       )}
 
@@ -264,16 +261,31 @@ const GuardarPartida = ({
             <dt className="font-medium">Fecha</dt>
             <dd>{fecha}</dd>
 
-            <dt className="font-medium">Nivel</dt>
-            <dd>{nivel}</dd>
-
-            <dt className="font-medium">Ranked</dt>
-            <dd>{isRanked ? "sí" : "no"}</dd>
-
-            <dt className="font-medium">Rondas</dt>
+            <dt className="font-medium">Partidas</dt>
             <dd>
-              {rondas.length === 0 ? "ninguna" : rondas.join(", ")} (
-              {filas.length} filas)
+              {rondas.length === 0 ? (
+                "ninguna"
+              ) : (
+                <>
+                  {rondas.join(", ")} ({filas.length} filas)
+                  <ul className="mt-1">
+                    {rondas.map((ronda) => {
+                      const d = datosRonda.get(ronda);
+                      return (
+                        <li
+                          key={ronda}
+                          className={d ? undefined : "text-red-700"}
+                        >
+                          {etiquetaRonda(
+                            ronda,
+                            d ? { nivel: d.nivel, isRanked: d.is_ranked } : null
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
             </dd>
 
             <dt className="font-medium">Personajes</dt>
@@ -282,14 +294,14 @@ const GuardarPartida = ({
             </dd>
           </dl>
 
-          {/* Detalle por ronda, sólo si hay algo que enseñar. */}
+          {/* Detalle por partida, sólo si hay algo que enseñar. */}
           {conPersonaje > 0 && (
             <details className="mt-2 text-sm text-gray-700">
-              <summary className="cursor-pointer">Personajes por ronda</summary>
+              <summary className="cursor-pointer">Personajes por partida</summary>
               <ul className="mt-1 ml-4 list-disc">
                 {rondas.map((ronda) => (
                   <li key={ronda}>
-                    Ronda {ronda}:{" "}
+                    Partida {ronda}:{" "}
                     {filas
                       .filter((f) => f.num_partida === ronda)
                       .map((f) => `${f.jugador} → ${f.personaje ?? "—"}`)
@@ -302,7 +314,17 @@ const GuardarPartida = ({
 
           {sinDatos && (
             <p className="mt-2 text-sm text-gray-600">
-              No hay ninguna ronda rellenada todavía.
+              No hay ninguna partida rellenada todavía.
+            </p>
+          )}
+
+          {rondasIncompletas.length > 0 && (
+            <p role="alert" className="mt-2 text-sm text-red-700">
+              {rondasIncompletas.length === 1 ? "La partida " : "Las partidas "}
+              {rondasIncompletas.join(", ")}{" "}
+              {rondasIncompletas.length === 1 ? "no tiene" : "no tienen"} nivel
+              o ranked apuntados. Ábrela con el botón + de la tabla y dale a
+              Submit.
             </p>
           )}
 

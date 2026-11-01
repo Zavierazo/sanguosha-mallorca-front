@@ -328,6 +328,9 @@ export default function MesaPage() {
             <header className="ficha-cabecera">
               <div className="ficha-titulo-y-atributos">
                 <h1 id="ficha-titulo">{ficha?.nombre ?? "Ficha de personaje"}</h1>
+                {ficha?.shortLore?.trim() && (
+                  <p className="ficha-shortlore">{ficha.shortLore}</p>
+                )}
                 {ficha && (
                   <div className="ficha-atributos" aria-label="Atributos del personaje">
                     {ficha.hp && <span>({ficha.hp} HP)</span>}

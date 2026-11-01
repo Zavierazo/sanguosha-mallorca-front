@@ -45,10 +45,9 @@ const partidaBase = (parcial: Partial<RawDataPartida> = {}): RawDataPartida => (
   fecha: "2026-09-01",
   scoringSystem: "2024-01-01",
   torneoId: null,
-  nivel: 5,
-  isRanked: true,
   descripcion: "",
   jugadores: JUGADORES,
+  rondas: [{ numPartida: 1, nivel: 5, isRanked: true }],
   filas: [
     fila({ jugador: "Arcan", rol: "R", puntos: 5, gana: true }),
     fila({ jugador: "Miquel", rol: "L", puntos: 3, gana: true }),
@@ -71,20 +70,31 @@ const ciclo = (partida: RawDataPartida) =>
  * en la línea `Jugadores:`, y el reemplazo acaba tocando la cabecera en lugar de
  * la fila. Además el relleno de las columnas depende del nombre más largo de la
  * mesa, así que el texto exacto de una fila no es predecible.
+ *
+ * El nivel y el ranked NO van en la cabecera: son de cada partida y viajan en
+ * su línea ("Partida N · Nivel X"). El cuerpo que se pase debe incluir esa
+ * línea con su nivel.
  */
+const CABECERA = [
+  `Sanguosha Mallorca · Puntuaciones (formato v${RAW_DATA_VERSION})`,
+  "Fecha: 2026-09-01",
+  "Sistema: 2024-01-01",
+  "Torneo: nuevo",
+  "Descripción: -",
+  `Jugadores: ${JUGADORES.join(", ")}`,
+];
 const conCuerpo = (cuerpo: string[]): string =>
-  [
-    `Sanguosha Mallorca · Puntuaciones (formato v${RAW_DATA_VERSION})`,
-    "Fecha: 2026-09-01",
-    "Sistema: 2024-01-01",
-    "Torneo: nuevo",
-    "Nivel: 5",
-    "Ranked: sí",
-    "Descripción: -",
-    `Jugadores: ${JUGADORES.join(", ")}`,
-    "",
-    ...cuerpo,
-  ].join("\n");
+  [...CABECERA, "", ...cuerpo].join("\n");
+
+/** La línea de la partida 1 con su nivel, y las cinco filas completas. */
+const PARTIDA_1 = "Partida 1 · Nivel 5";
+const PARTIDA_1_COMPLETA = [
+  "  Arcan | Rey | 5 | gana",
+  "  Miquel | Leal | 3 | gana",
+  "  AliG | Rebelde | 0 | muere",
+  "  Zatara | Rebelde | 0 | muere",
+  "  Han Jin | Espía | 1",
+];
 
 describe("ciclo completo: formatear y volver a leer", () => {
   it("devuelve exactamente los mismos datos", () => {
@@ -99,6 +109,7 @@ describe("ciclo completo: formatear y volver a leer", () => {
   it("conserva la continuación de un torneo y sus números de ronda", () => {
     const partida = partidaBase({
       torneoId: 1009,
+      rondas: [{ numPartida: 3, nivel: 5, isRanked: true }],
       filas: [
         fila({ numPartida: 3, jugador: "Arcan", rol: "R", puntos: 5, gana: true }),
         fila({ numPartida: 3, jugador: "Miquel", rol: "L", puntos: 3, gana: true }),
@@ -135,12 +146,36 @@ describe("ciclo completo: formatear y volver a leer", () => {
     ]);
   });
 
-  it("conserva isRanked en false", () => {
-    const resultado = ciclo(partidaBase({ isRanked: false }));
+  it("conserva una ronda no ranked", () => {
+    const resultado = ciclo(
+      partidaBase({ rondas: [{ numPartida: 1, nivel: 5, isRanked: false }] })
+    );
 
     expect(resultado.ok).toBe(true);
     if (!resultado.ok) return;
-    expect(resultado.partida.isRanked).toBe(false);
+    expect(resultado.partida.rondas).toEqual([
+      { numPartida: 1, nivel: 5, isRanked: false },
+    ]);
+  });
+
+  it("conserva nivel y ranked distintos en cada ronda", () => {
+    // El motivo del formato v2: alguien sube de nivel a mitad del torneo, o una
+    // ronda se juega sin que cuente. Cada partida guarda lo suyo.
+    const ronda2 = partidaBase().filas.map((f) => ({ ...f, numPartida: 2 }));
+    const partida = partidaBase({
+      rondas: [
+        { numPartida: 1, nivel: 7, isRanked: true },
+        { numPartida: 2, nivel: 8, isRanked: false },
+      ],
+      filas: [...partidaBase().filas, ...ronda2],
+    });
+
+    const resultado = ciclo(partida);
+
+    expect(resultado.ok).toBe(true);
+    if (!resultado.ok) return;
+    expect(resultado.partida).toEqual(partida);
+    expect(resultado.avisos).toEqual([]);
   });
 
   it("conserva una descripción que contiene una barra", () => {
@@ -168,11 +203,91 @@ describe("ciclo completo: formatear y volver a leer", () => {
   });
 
   it("conserva el nivel 6.5, que existe en los datos reales", () => {
-    const resultado = ciclo(partidaBase({ nivel: 6.5 }));
+    const resultado = ciclo(
+      partidaBase({ rondas: [{ numPartida: 1, nivel: 6.5, isRanked: true }] })
+    );
 
     expect(resultado.ok).toBe(true);
     if (!resultado.ok) return;
-    expect(resultado.partida.nivel).toBe(6.5);
+    expect(resultado.partida.rondas[0].nivel).toBe(6.5);
+  });
+});
+
+describe("formato v2: nivel y ranked en la línea de la ronda", () => {
+  it("escribe 'no ranked' sólo cuando toca, y nada en la cabecera", () => {
+    const ronda2 = partidaBase().filas.map((f) => ({ ...f, numPartida: 2 }));
+    const texto = formatRawData(
+      partidaBase({
+        rondas: [
+          { numPartida: 1, nivel: 7, isRanked: true },
+          { numPartida: 2, nivel: 8, isRanked: false },
+        ],
+        filas: [...partidaBase().filas, ...ronda2],
+      })
+    );
+    const lineas = texto.split("\n");
+
+    expect(lineas).toContain("Partida 1 · Nivel 7");
+    expect(lineas).toContain("Partida 2 · Nivel 8 · no ranked");
+    expect(lineas.some((l) => l.startsWith("Nivel:"))).toBe(false);
+    expect(lineas.some((l) => l.startsWith("Ranked:"))).toBe(false);
+  });
+
+  it("una ronda sin datos sale con 'Nivel ?', que no se puede importar", () => {
+    // Mejor un texto que se niega a cargar que uno que se inventa el nivel.
+    const texto = formatRawData(partidaBase({ rondas: [] }));
+    expect(texto).toContain("Partida 1 · Nivel ?");
+
+    const resultado = parseRawData(texto, OPCIONES);
+    expect(resultado.ok).toBe(false);
+    if (resultado.ok) return;
+    expect(resultado.errores.join(" ")).toContain("partida 1");
+  });
+
+  it("rechaza una partida cuya línea no trae el nivel", () => {
+    const texto = [
+      `Sanguosha Mallorca · Puntuaciones (formato v${RAW_DATA_VERSION})`,
+      "Fecha: 2026-09-01",
+      "Sistema: 2024-01-01",
+      "Torneo: nuevo",
+      `Jugadores: ${JUGADORES.join(", ")}`,
+      "",
+      "Partida 1",
+      ...PARTIDA_1_COMPLETA,
+    ].join("\n");
+
+    const resultado = parseRawData(texto, OPCIONES);
+
+    expect(resultado.ok).toBe(false);
+    if (resultado.ok) return;
+    expect(resultado.errores.join(" ")).toContain("Falta el nivel de la partida 1");
+  });
+
+  it("acepta coma decimal y otros separadores escritos a mano", () => {
+    const texto = formatRawData(partidaBase()).replace(
+      "Partida 1 · Nivel 5",
+      "Partida 1, nivel 6,5 - No Ranked"
+    );
+
+    const resultado = parseRawData(texto, OPCIONES);
+
+    expect(resultado.ok).toBe(true);
+    if (!resultado.ok) return;
+    expect(resultado.partida.rondas).toEqual([
+      { numPartida: 1, nivel: 6.5, isRanked: false },
+    ]);
+  });
+
+  it("sin marca 'no ranked' la partida es ranked, sin avisar", () => {
+    const resultado = parseRawData(
+      conCuerpo([PARTIDA_1, ...PARTIDA_1_COMPLETA]),
+      OPCIONES
+    );
+
+    expect(resultado.ok).toBe(true);
+    if (!resultado.ok) return;
+    expect(resultado.partida.rondas[0].isRanked).toBe(true);
+    expect(resultado.avisos.some((a) => a.includes('"ranked"'))).toBe(false);
   });
 });
 
@@ -230,8 +345,8 @@ describe("lo que el texto sufre de camino por Telegram", () => {
 
   it("ignora en silencio la línea separadora de una tabla de Markdown", () => {
     const texto = formatRawData(partidaBase()).replace(
-      "Ronda 1",
-      "Ronda 1\n---|---|---"
+      "Partida 1 · Nivel 5",
+      "Partida 1 · Nivel 5\n---|---|---"
     );
 
     const resultado = parseRawData(texto, OPCIONES);
@@ -244,7 +359,7 @@ describe("lo que el texto sufre de camino por Telegram", () => {
 
   it("avisa de una fila que no entiende, si lleva un nombre delante", () => {
     const texto = conCuerpo([
-      "Ronda 1",
+      PARTIDA_1,
       "  Arcan | Rey | 5 | gana",
       "  Han Jin | Espía | tres",
     ]);
@@ -258,16 +373,9 @@ describe("lo que el texto sufre de camino por Telegram", () => {
 
   it("acepta las tres grafías del rol que circulan por el proyecto", () => {
     const texto = [
-      `Sanguosha Mallorca · Puntuaciones (formato v${RAW_DATA_VERSION})`,
-      "Fecha: 2026-09-01",
-      "Sistema: 2024-01-01",
-      "Torneo: nuevo",
-      "Nivel: 5",
-      "Ranked: sí",
-      "Descripción: -",
-      `Jugadores: ${JUGADORES.join(", ")}`,
+      ...CABECERA,
       "",
-      "Ronda 1",
+      PARTIDA_1,
       "  Arcan | King | 5 | gana",
       "  Miquel | Leal | 3 | gana",
       "  AliG | V | 0",
@@ -321,7 +429,7 @@ describe("lo que se rechaza en vez de adivinar", () => {
   });
 
   it("rechaza un nivel fuera del rango del desplegable", () => {
-    const texto = formatRawData(partidaBase()).replace("Nivel: 5", "Nivel: 99");
+    const texto = formatRawData(partidaBase()).replace("Nivel 5", "Nivel 99");
 
     const resultado = parseRawData(texto, OPCIONES);
 
@@ -331,7 +439,7 @@ describe("lo que se rechaza en vez de adivinar", () => {
   });
 
   it("rechaza un decimal que no está en el desplegable (6.4)", () => {
-    const texto = formatRawData(partidaBase()).replace("Nivel: 5", "Nivel: 6.4");
+    const texto = formatRawData(partidaBase()).replace("Nivel 5", "Nivel 6.4");
 
     const resultado = parseRawData(texto, OPCIONES);
 
@@ -353,25 +461,14 @@ describe("lo que se rechaza en vez de adivinar", () => {
     expect(resultado.errores.join(" ")).toContain("AAAA-MM-DD");
   });
 
-  it("rechaza filas escritas antes de la primera línea Ronda", () => {
-    const texto = [
-      `Sanguosha Mallorca · Puntuaciones (formato v${RAW_DATA_VERSION})`,
-      "Fecha: 2026-09-01",
-      "Sistema: 2024-01-01",
-      "Torneo: nuevo",
-      "Nivel: 5",
-      "Ranked: sí",
-      "Descripción: -",
-      `Jugadores: ${JUGADORES.join(", ")}`,
-      "",
-      "  Arcan | Rey | 5 | gana",
-    ].join("\n");
+  it("rechaza filas escritas antes de la primera línea Partida", () => {
+    const texto = conCuerpo(["  Arcan | Rey | 5 | gana"]);
 
     const resultado = parseRawData(texto, OPCIONES);
 
     expect(resultado.ok).toBe(false);
     if (resultado.ok) return;
-    expect(resultado.errores.join(" ")).toContain("Ronda N");
+    expect(resultado.errores.join(" ")).toContain("Partida N");
   });
 
   it("rechaza una mesa con menos de cinco jugadores", () => {
@@ -418,22 +515,13 @@ describe("lo que se rechaza en vez de adivinar", () => {
   });
 
   it("rechaza un texto sin ninguna fila de puntuaciones", () => {
-    const texto = [
-      `Sanguosha Mallorca · Puntuaciones (formato v${RAW_DATA_VERSION})`,
-      "Fecha: 2026-09-01",
-      "Sistema: 2024-01-01",
-      "Torneo: nuevo",
-      "Nivel: 5",
-      "Ranked: sí",
-      "Descripción: -",
-      `Jugadores: ${JUGADORES.join(", ")}`,
-    ].join("\n");
+    const texto = CABECERA.join("\n");
 
     const resultado = parseRawData(texto, OPCIONES);
 
     expect(resultado.ok).toBe(false);
     if (resultado.ok) return;
-    expect(resultado.errores.join(" ")).toContain("Ronda N");
+    expect(resultado.errores.join(" ")).toContain("Partida N");
   });
 
   it("acumula todos los errores, no sólo el primero", () => {
@@ -441,7 +529,7 @@ describe("lo que se rechaza en vez de adivinar", () => {
     // corrige de una pasada en lugar de descubrirlos de uno en uno.
     const texto = formatRawData(partidaBase())
       .replace("Fecha: 2026-09-01", "Fecha: ayer")
-      .replace("Nivel: 5", "Nivel: 99");
+      .replace("Nivel 5", "Nivel 99");
 
     const resultado = parseRawData(texto, OPCIONES);
 
@@ -489,7 +577,7 @@ describe("avisos: cosas raras que no impiden importar", () => {
     // de roles contra `role_distributions`. Aquí sólo se avisa: quien importa
     // tiene la mesa delante y puede corregirlo.
     const texto = conCuerpo([
-      "Ronda 1",
+      PARTIDA_1,
       "  Arcan | Rey | 5 | gana",
       "  Miquel | Rey | 3 | gana",
       "  AliG | Rebelde | 0",
@@ -560,11 +648,11 @@ describe("formatRawData: la salida", () => {
       })
     );
 
-    expect(texto.indexOf("Ronda 1")).toBeLessThan(texto.indexOf("Ronda 2"));
+    expect(texto.indexOf("Partida 1")).toBeLessThan(texto.indexOf("Partida 2"));
 
-    // Se mira sólo a partir de la primera ronda: la cabecera "Jugadores:" lleva
+    // Se mira sólo a partir de la primera partida: la cabecera "Jugadores:" lleva
     // los mismos nombres, en otro orden, y falsearía la comparación.
-    const cuerpo = texto.slice(texto.indexOf("Ronda 1"));
+    const cuerpo = texto.slice(texto.indexOf("Partida 1"));
     expect(cuerpo.indexOf("Miquel")).toBeLessThan(cuerpo.indexOf("Arcan"));
   });
 });
