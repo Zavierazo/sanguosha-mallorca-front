@@ -248,7 +248,7 @@
 .ficha-titulo-y-atributos h1 {
   min-width: 0;
   margin: 0;
-  font-size: clamp(1.25rem, 5vw, 2rem);
+  font-size: clamp(1rem, 6vw, 2rem);
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -257,7 +257,7 @@
   width: 100%;
   margin: 0;
   color: #36312a;
-  font-size: 1.2rem;
+  font-size: clamp(0.85rem, 3.6vw, 1.2rem);
   font-style: italic;
   line-height: 1.65;
   overflow-wrap: anywhere;
@@ -291,6 +291,21 @@
   font-weight: 650;
   line-height: 1.15;
   text-align: center;
+}
+
+/* Anclado a .ficha-contenedor (100dvh), no a la ventana: con position: fixed
+   la barra de Firefox Android puede taparlo (ver el modal de ronda). */
+.ficha-boton-siguiente {
+  position: absolute;
+  z-index: 2;
+  left: max(1rem, env(safe-area-inset-left));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  box-shadow: 0 2px 8px rgba(41, 37, 31, 0.22);
+}
+
+/* Hueco al fondo para que el botón flotante no tape la última línea. */
+.ficha-contenido.ficha-contenido--con-siguiente {
+  padding-bottom: calc(2.75rem + 2rem + env(safe-area-inset-bottom));
 }
 
 .ficha-boton-siguiente:focus-visible {
@@ -479,6 +494,10 @@
 
   .ficha-contenido {
     padding: 2rem;
+  }
+
+  .ficha-contenido.ficha-contenido--con-siguiente {
+    padding-bottom: calc(2.75rem + 2rem + env(safe-area-inset-bottom));
   }
 
   .ficha-navegacion {

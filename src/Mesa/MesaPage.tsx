@@ -127,6 +127,10 @@ export default function MesaPage() {
     [asientosDesdeUrl, filaSeleccionada]
   );
 
+  // Flotante sobre la ficha; se oculta con un panel abierto para no taparlo.
+  const mostrarSiguiente =
+    Boolean(ficha) && filaSiguiente !== null && panelFicha === null;
+
   const irAlSiguientePersonaje = useCallback(() => {
     if (filaSiguiente === null) return;
     navigate(
@@ -352,19 +356,8 @@ export default function MesaPage() {
                       setMenuInformacionVisible((visible) => !visible)
                     }
                   >
-                    {menuInformacionVisible ? "Ocultar información" : "Ver información"}
+                    {menuInformacionVisible ? "Ver menos" : "Ver más"}
                   </button>
-                  {filaSiguiente !== null && (
-                    <button
-                      type="button"
-                      className="ficha-boton-siguiente"
-                      aria-label="Siguiente personaje"
-                      onClick={irAlSiguientePersonaje}
-                    >
-                      Siguiente
-                      <span aria-hidden="true"> →</span>
-                    </button>
-                  )}
                 </div>
               )}
             </header>
@@ -378,7 +371,11 @@ export default function MesaPage() {
             ) : (
               <>
                 <div className="ficha-cuerpo">
-                  <div className="ficha-contenido">
+                  <div
+                    className={`ficha-contenido${
+                      mostrarSiguiente ? " ficha-contenido--con-siguiente" : ""
+                    }`}
+                  >
                     <section className="ficha-seccion">
                       <p className="ficha-skills">
                         {renderTextoExcel(ficha.skills, ficha.skillsRichText) ||
@@ -481,6 +478,17 @@ export default function MesaPage() {
                   </aside>
                 )}
               </>
+            )}
+            {mostrarSiguiente && (
+              <button
+                type="button"
+                className="ficha-boton-siguiente"
+                aria-label="Siguiente personaje"
+                onClick={irAlSiguientePersonaje}
+              >
+                Siguiente
+                <span aria-hidden="true"> →</span>
+              </button>
             )}
           </div>
         </section>

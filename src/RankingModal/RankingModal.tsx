@@ -250,21 +250,40 @@ const RankingModal = ({
    * debajo, imposible de pulsar. visualViewport descuenta esa barra (y el
    * teclado); `offsetTop` cubre el caso en que el navegador desplaza la vista
    * al abrirse el teclado. En escritorio la media query ignora las variables.
+   *
+   * Con el teclado, el grueso del trabajo lo hace `interactive-widget=
+   * resizes-content` (index.html): la página entera se encoge y el borde de
+   * abajo pasa a ser el teclado. Esto queda para Safari, que ignora esa
+   * etiqueta, y para la barra de Firefox.
+   *
+   * Se lee en el siguiente fotograma y no en el evento: al encogerse el modal
+   * el contenido se recoloca y el navegador puede volver a desplazar la vista;
+   * leyendo dentro del evento se aplicaba un `offsetTop` ya viejo, y el modal
+   * se quedaba por encima del teclado dejando ver la pantalla de detrás.
    */
   useEffect(() => {
     const vista = window.visualViewport;
     if (!vista) return;
     const raiz = document.documentElement;
-    const actualizar = () => {
+    let fotograma: number | null = null;
+    const aplicar = () => {
+      fotograma = null;
       raiz.style.setProperty("--rm-alto-visible", `${vista.height}px`);
       raiz.style.setProperty("--rm-arriba-visible", `${vista.offsetTop}px`);
     };
-    actualizar();
-    vista.addEventListener("resize", actualizar);
-    vista.addEventListener("scroll", actualizar);
+    const programar = () => {
+      if (fotograma !== null) cancelAnimationFrame(fotograma);
+      fotograma = requestAnimationFrame(aplicar);
+    };
+    aplicar();
+    vista.addEventListener("resize", programar);
+    vista.addEventListener("scroll", programar);
+    window.addEventListener("resize", programar);
     return () => {
-      vista.removeEventListener("resize", actualizar);
-      vista.removeEventListener("scroll", actualizar);
+      if (fotograma !== null) cancelAnimationFrame(fotograma);
+      vista.removeEventListener("resize", programar);
+      vista.removeEventListener("scroll", programar);
+      window.removeEventListener("resize", programar);
       raiz.style.removeProperty("--rm-alto-visible");
       raiz.style.removeProperty("--rm-arriba-visible");
     };
@@ -940,10 +959,14 @@ const RankingModal = ({
             ))}
           </div>
         )}
-        <div className="flex flex-wrap justify-center gap-3 sm:gap-5">
+        {/*
+          Botones pequeños a propósito: en el móvil los tres tienen que caber en
+          una línea, y cada píxel de alto del pie se le quita al formulario.
+        */}
+        <div className="flex flex-wrap justify-center gap-2 sm:gap-4">
           <button
             type="button"
-            className="px-4 py-2 text-xl font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
+            className="px-3 py-1.5 text-sm sm:text-base font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
             onClick={() => submitModal()}
           >
             Submit
@@ -951,11 +974,13 @@ const RankingModal = ({
           {/*
             Un solo botón. Si eres organizador identificado, copia el enlace Y
             lo publica en el tema de mesas del grupo; si no, sólo lo copia. El
-            literal lo dice, para que se vea qué va a pasar antes de pulsar.
+            texto es el mismo en los dos casos para que los tres botones quepan
+            en una línea en el móvil; la diferencia la cuentan el `title` y el
+            aviso que sale debajo al pulsar.
           */}
           <button
             type="button"
-            className="px-4 py-2 text-lg font-medium text-center text-white bg-sky-500 rounded-lg hover:bg-sky-600 focus:ring-4 focus:outline-none focus:ring-sky-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 text-sm sm:text-base font-medium text-center text-white bg-sky-500 rounded-lg hover:bg-sky-600 focus:ring-4 focus:outline-none focus:ring-sky-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
             onClick={compartirMesa}
             disabled={mesaEstado === "enviando"}
             title={
@@ -964,11 +989,7 @@ const RankingModal = ({
                 : "Copia el enlace a esta mesa al portapapeles"
             }
           >
-            {mesaEstado === "enviando"
-              ? "Enviando…"
-              : puedeEnviarMesa
-              ? "📋✈️ Copy & Send game link"
-              : "📋 Copy game link"}
+            {mesaEstado === "enviando" ? "Enviando…" : "Game link"}
           </button>
           {/*
             Antes "Cancel", y la gente creía que perdía lo escrito. No es así:
@@ -978,7 +999,7 @@ const RankingModal = ({
           */}
           <button
             type="button"
-            className="px-4 py-2 text-xl font-medium text-center text-white bg-gray-600 rounded-lg hover:bg-gray-700 focus:ring-4 focus:outline-none focus:ring-gray-300"
+            className="px-3 py-1.5 text-sm sm:text-base font-medium text-center text-white bg-gray-600 rounded-lg hover:bg-gray-700 focus:ring-4 focus:outline-none focus:ring-gray-300"
             onClick={() => handleClose()}
             title="Guarda lo escrito sin apuntar la ronda; al reabrirla sigue ahí"
           >
@@ -997,10 +1018,6 @@ const RankingModal = ({
             </p>
           )}
         </div>
-        <p className="mt-1 text-center text-xs text-gray-500">
-          Los cambios se guardan solos. Submit calcula los puntos y apunta la
-          partida.
-        </p>
       </div>
     </div>
   );

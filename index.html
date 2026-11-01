@@ -3,7 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      interactive-widget=resizes-content: al abrirse el teclado del móvil, el
+      navegador encoge la página entera en vez de sólo la parte visible. Sin
+      esto (el comportamiento por defecto de Chrome y Firefox para Android), el
+      modal de partida perseguía con JS una vista que el navegador desplazaba,
+      y quedaba un hueco entre el modal y el teclado. Safari lo ignora; ahí
+      sigue valiendo la medición con visualViewport de RankingModal.tsx.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"
+    />
     <meta name="theme-color" content="#000000" />
     <meta name="description" content="App for Sanguosha Mallorca utilities" />
     <link rel="apple-touch-icon" href="/logo192.png" />
