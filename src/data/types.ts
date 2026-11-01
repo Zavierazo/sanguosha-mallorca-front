@@ -105,6 +105,8 @@ export interface Personaje {
   lore?: string | null;
   /** Columna opcional `shortLore` del Excel: texto plano, sin formato. */
   shortLore?: string | null;
+  /** Columna opcional `alternative versions` del Excel: texto plano. */
+  alternativeVersions?: string | null;
   servidor?: string | null;
   expansion?: string | null;
   version?: string | null;

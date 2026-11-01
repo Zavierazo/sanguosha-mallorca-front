@@ -216,6 +216,7 @@
 }
 
 .ficha-contenedor {
+  --ficha-skills-size: 1.2rem;
   position: relative;
   display: flex;
   width: 100%;
@@ -303,9 +304,45 @@
   box-shadow: 0 2px 8px rgba(41, 37, 31, 0.22);
 }
 
-/* Hueco al fondo para que el botón flotante no tape la última línea. */
+/* Hueco al fondo para que los botones flotantes no tapen la última línea. */
 .ficha-contenido.ficha-contenido--con-siguiente {
   padding-bottom: calc(2.75rem + 2rem + env(safe-area-inset-bottom));
+}
+
+/* Pareja del botón Siguiente, anclada a la ficha (no a la ventana) en la
+   esquina opuesta. Escala sólo el texto de habilidades. */
+.ficha-tamano {
+  position: absolute;
+  z-index: 2;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 0.4rem;
+}
+
+.ficha-tamano button {
+  display: inline-flex;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: #eee8de;
+  box-shadow: 0 2px 8px rgba(41, 37, 31, 0.22);
+  color: #29251f;
+  cursor: pointer;
+}
+
+.ficha-tamano button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ficha-tamano button:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
 }
 
 .ficha-boton-siguiente:focus-visible {
@@ -328,18 +365,17 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* Va dentro del <h1>, tras el nombre: inline para compartir línea, con tamaño
+   y peso propios (menor que el nombre y sin su negrita). */
 .ficha-atributos {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.75rem;
-  font-size: 1rem;
+  margin-left: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
-.ficha-atributos span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+.ficha-atributos > span + span {
+  margin-left: 0.5rem;
 }
 
 .ficha-seccion {
@@ -369,9 +405,13 @@
 }
 
 .ficha-seccion .ficha-skills {
-  font-size: 1.2rem;
+  font-size: var(--ficha-skills-size, 1.2rem);
   line-height: 1.65;
   text-align: left;
+}
+
+.ficha-seccion .ficha-skills + .ficha-skills {
+  margin-top: 1rem;
 }
 
 .ficha-navegacion {

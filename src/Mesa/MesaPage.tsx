@@ -15,7 +15,37 @@ import "./Mesa.css";
 
 type PanelFicha = "faq" | "lore" | "metadata" | "chino";
 
-function estilosFragmento(fragmento: PersonajeFragmentoTexto): CSSProperties {
+/** Tamaños en rem del texto de habilidades; el índice 1 (1.2rem) es el base. */
+const PASOS_TAMANO = [1, 1.2, 1.4, 1.6, 1.8];
+const INDICE_TAMANO_BASE = 1;
+const CLAVE_TAMANO = "mesaFichaSkillsSize-v1";
+
+function leerIndiceTamano(): number {
+  try {
+    const crudo = window.localStorage.getItem(CLAVE_TAMANO);
+    if (crudo === null) return INDICE_TAMANO_BASE;
+    const indice = Number(crudo);
+    return Number.isInteger(indice) && indice >= 0 && indice < PASOS_TAMANO.length
+      ? indice
+      : INDICE_TAMANO_BASE;
+  } catch {
+    // Sin almacenamiento o sin permiso: tamaño base. La ficha sigue funcionando.
+    return INDICE_TAMANO_BASE;
+  }
+}
+
+function escribirIndiceTamano(indice: number): void {
+  try {
+    window.localStorage.setItem(CLAVE_TAMANO, String(indice));
+  } catch {
+    // Sin sitio o sin permiso: la preferencia dura lo que dure la pestaña.
+  }
+}
+
+function estilosFragmento(
+  fragmento: PersonajeFragmentoTexto,
+  omitirTamano = false
+): CSSProperties {
   const estilo: CSSProperties = {};
   if (fragmento.negrita) estilo.fontWeight = 700;
   if (fragmento.cursiva) estilo.fontStyle = "italic";
@@ -38,7 +68,11 @@ function estilosFragmento(fragmento: PersonajeFragmentoTexto): CSSProperties {
     const familia = fragmento.familiaFuente.replace(/[^a-z\d _-]/gi, "").trim();
     if (familia) estilo.fontFamily = `"${familia}", sans-serif`;
   }
+  // En skills se omite el tamaño absoluto del Excel para que el zoom (la
+  // variable --ficha-skills-size del párrafo) mande. El super/subíndice se
+  // mantiene porque "smaller" es relativo al texto heredado.
   if (
+    !omitirTamano &&
     fragmento.tamanoFuentePuntos &&
     Number.isFinite(fragmento.tamanoFuentePuntos)
   ) {
@@ -53,16 +87,58 @@ function estilosFragmento(fragmento: PersonajeFragmentoTexto): CSSProperties {
 
 function renderTextoExcel(
   texto: string | null | undefined,
-  fragmentos: PersonajeFragmentoTexto[] | null | undefined
+  fragmentos: PersonajeFragmentoTexto[] | null | undefined,
+  omitirTamano = false
 ): React.ReactNode {
   if (fragmentos?.length) {
     return fragmentos.map((fragmento, indice) => (
-      <span key={`${indice}-${fragmento.texto}`} style={estilosFragmento(fragmento)}>
+      <span
+        key={`${indice}-${fragmento.texto}`}
+        style={estilosFragmento(fragmento, omitirTamano)}
+      >
         {fragmento.texto}
       </span>
     ));
   }
   return texto;
+}
+
+/** Lupa con un signo dentro (− para reducir, + para aumentar). */
+function IconoLupa({ signo }: { signo: "mas" | "menos" }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none">
+      <circle cx="10" cy="10" r="6.5" stroke="currentColor" strokeWidth="1.8" />
+      <line
+        x1="14.8"
+        y1="14.8"
+        x2="20.5"
+        y2="20.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <line
+        x1="7"
+        y1="10"
+        x2="13"
+        y2="10"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      {signo === "mas" && (
+        <line
+          x1="10"
+          y1="7"
+          x2="10"
+          y2="13"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      )}
+    </svg>
+  );
 }
 
 export default function MesaPage() {
@@ -85,6 +161,7 @@ export default function MesaPage() {
   const [menuInformacionVisible, setMenuInformacionVisible] = useState(false);
   const [jugadorPerspectiva, setJugadorPerspectiva] = useState<string | null>(null);
   const [selectorPerspectivaAbierto, setSelectorPerspectivaAbierto] = useState(false);
+  const [indiceTamano, setIndiceTamano] = useState(leerIndiceTamano);
 
   useEffect(() => {
     let activa = true;
@@ -127,9 +204,11 @@ export default function MesaPage() {
     [asientosDesdeUrl, filaSeleccionada]
   );
 
-  // Flotante sobre la ficha; se oculta con un panel abierto para no taparlo.
-  const mostrarSiguiente =
-    Boolean(ficha) && filaSiguiente !== null && panelFicha === null;
+  // Grupos flotantes sobre la ficha; se ocultan con un panel abierto para no
+  // taparlo. Los botones de tamaño salen siempre que hay ficha; "Siguiente"
+  // sólo si queda otro personaje.
+  const mostrarFlotantes = Boolean(ficha) && panelFicha === null;
+  const mostrarSiguiente = mostrarFlotantes && filaSiguiente !== null;
 
   const irAlSiguientePersonaje = useCallback(() => {
     if (filaSiguiente === null) return;
@@ -185,6 +264,10 @@ export default function MesaPage() {
     setPanelFicha(null);
     setMenuInformacionVisible(false);
   }, [filaSeleccionada]);
+
+  useEffect(() => {
+    escribirIndiceTamano(indiceTamano);
+  }, [indiceTamano]);
 
   useEffect(() => {
     if (!selectorPerspectivaAbierto) return;
@@ -328,21 +411,39 @@ export default function MesaPage() {
         <section
           aria-labelledby="ficha-titulo"
         >
-          <div className="ficha-contenedor">
+          <div
+            className="ficha-contenedor"
+            style={
+              {
+                "--ficha-skills-size": `${PASOS_TAMANO[indiceTamano]}rem`,
+              } as CSSProperties
+            }
+          >
             <header className="ficha-cabecera">
               <div className="ficha-titulo-y-atributos">
-                <h1 id="ficha-titulo">{ficha?.nombre ?? "Ficha de personaje"}</h1>
+                <h1 id="ficha-titulo">
+                  {ficha?.nombre ?? "Ficha de personaje"}
+                  {ficha && (ficha.hp || ficha.shield || ficha.charges) && (
+                    <span className="ficha-atributos" aria-label="Atributos del personaje">
+                      {(ficha.hp || ficha.shield) && (
+                        <span>
+                          (
+                          {ficha.hp && `${ficha.hp} HP`}
+                          {ficha.hp && ficha.shield && " "}
+                          {ficha.shield && (
+                            <span aria-label={`Escudo ${ficha.shield}`}>
+                              {ficha.shield}🛡️
+                            </span>
+                          )}
+                          )
+                        </span>
+                      )}
+                      {ficha.charges && <span>({ficha.charges} charges)</span>}
+                    </span>
+                  )}
+                </h1>
                 {ficha?.shortLore?.trim() && (
                   <p className="ficha-shortlore">{ficha.shortLore}</p>
-                )}
-                {ficha && (
-                  <div className="ficha-atributos" aria-label="Atributos del personaje">
-                    {ficha.hp && <span>({ficha.hp} HP)</span>}
-                    {ficha.shield && (
-                      <span aria-label={`Escudo ${ficha.shield}`}>🛡️ {ficha.shield}</span>
-                    )}
-                    {ficha.charges && <span><strong>⚡</strong> {ficha.charges}</span>}
-                  </div>
                 )}
               </div>
               {ficha && (
@@ -373,26 +474,27 @@ export default function MesaPage() {
                 <div className="ficha-cuerpo">
                   <div
                     className={`ficha-contenido${
-                      mostrarSiguiente ? " ficha-contenido--con-siguiente" : ""
+                      mostrarFlotantes ? " ficha-contenido--con-siguiente" : ""
                     }`}
                   >
                     <section className="ficha-seccion">
                       <p className="ficha-skills">
-                        {renderTextoExcel(ficha.skills, ficha.skillsRichText) ||
-                          "Sin información disponible."}
+                        {renderTextoExcel(
+                          ficha.skills,
+                          ficha.skillsRichText,
+                          true
+                        ) || "Sin información disponible."}
                       </p>
-                    </section>
-                    {ficha.additionalSkills?.trim() && (
-                      <section className="ficha-seccion">
-                        <h2>Additional skills</h2>
+                      {ficha.additionalSkills?.trim() && (
                         <p className="ficha-skills">
                           {renderTextoExcel(
                             ficha.additionalSkills,
-                            ficha.additionalSkillsRichText
+                            ficha.additionalSkillsRichText,
+                            true
                           )}
                         </p>
-                      </section>
-                    )}
+                      )}
+                    </section>
                   </div>
 
                   <nav
@@ -450,6 +552,10 @@ export default function MesaPage() {
                             <dd>{ficha.expansion || "—"}</dd>
                             <dt>Versión</dt>
                             <dd>{ficha.version || "—"}</dd>
+                            <dt>wgt</dt>
+                            <dd>{ficha.nivel ?? "—"}</dd>
+                            <dt>Alternativas</dt>
+                            <dd>{ficha.alternativeVersions || "—"}</dd>
                           </dl>
                         </>
                       )}
@@ -489,6 +595,36 @@ export default function MesaPage() {
                 Siguiente
                 <span aria-hidden="true"> →</span>
               </button>
+            )}
+            {mostrarFlotantes && (
+              <div
+                className="ficha-tamano"
+                role="group"
+                aria-label="Tamaño del texto de habilidades"
+              >
+                <button
+                  type="button"
+                  aria-label="Reducir tamaño del texto"
+                  disabled={indiceTamano === 0}
+                  onClick={() =>
+                    setIndiceTamano((indice) => Math.max(0, indice - 1))
+                  }
+                >
+                  <IconoLupa signo="menos" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Aumentar tamaño del texto"
+                  disabled={indiceTamano === PASOS_TAMANO.length - 1}
+                  onClick={() =>
+                    setIndiceTamano((indice) =>
+                      Math.min(PASOS_TAMANO.length - 1, indice + 1)
+                    )
+                  }
+                >
+                  <IconoLupa signo="mas" />
+                </button>
+              </div>
             )}
           </div>
         </section>
