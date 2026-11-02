@@ -46,10 +46,26 @@ describe("parsearCatalogoPersonajes", () => {
       servidor: "HL",
       expansion: "芝兰玉树",
       version: "v. 2025-12-25",
+      codigo: expect.any(String),
     });
     expect(personaje?.shield).toBeNull();
     expect(personaje?.charges).toBeNull();
     expect(personaje?.additionalSkills).toBeNull();
+  });
+
+  // personajes_clave_key (BD/migration/pg/24) es única sobre estos seis campos,
+  // con el nombre sin distinguir mayúsculas (citext). Si el Excel repite una
+  // combinación, dos filas distintas del selector se guardarían como la misma
+  // carta. generar_24.py aborta en ese caso; esto avisa desde la web.
+  it("no repite la clave de la carta (codigo, servidor, expansion, version, nombre, nivel)", async () => {
+    const archivo = readFileSync(new URL("../../public/characters.xlsx", import.meta.url));
+    const personajes = await parsearCatalogoPersonajes(arrayBuffer(archivo));
+    const claves = personajes.map((p) =>
+      JSON.stringify([p.codigo, p.servidor, p.expansion, p.version, p.nombre.toLowerCase(), p.nivel])
+    );
+    const repetidas = claves.filter((clave, i) => claves.indexOf(clave) !== i);
+    expect(repetidas).toEqual([]);
+    expect(personajes.every((p) => p.codigo !== "")).toBe(true);
   });
 
   it("preserva los fragmentos y estilos de Skills, AdditionalSkills y FAQ", async () => {

@@ -150,19 +150,31 @@ export type Database = {
       }
       personajes: {
         Row: {
+          codigo: string | null
+          expansion: string | null
           id: number
           nivel: number
           nombre: string
+          servidor: string | null
+          version: string | null
         }
         Insert: {
+          codigo?: string | null
+          expansion?: string | null
           id?: number
           nivel: number
           nombre: string
+          servidor?: string | null
+          version?: string | null
         }
         Update: {
+          codigo?: string | null
+          expansion?: string | null
           id?: number
           nivel?: number
           nombre?: string
+          servidor?: string | null
+          version?: string | null
         }
         Relationships: []
       }
@@ -173,7 +185,7 @@ export type Database = {
           jugador: string | null
           kills: number | null
           num_partida: number
-          personaje: string | null
+          personaje: number | null
           puntos: number | null
           rol: string
           torneo_id: number
@@ -184,7 +196,7 @@ export type Database = {
           jugador?: string | null
           kills?: number | null
           num_partida: number
-          personaje?: string | null
+          personaje?: number | null
           puntos?: number | null
           rol: string
           torneo_id: number
@@ -195,7 +207,7 @@ export type Database = {
           jugador?: string | null
           kills?: number | null
           num_partida?: number
-          personaje?: string | null
+          personaje?: number | null
           puntos?: number | null
           rol?: string
           torneo_id?: number
@@ -221,6 +233,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "partidas"
             referencedColumns: ["torneo_id", "num_partida"]
+          },
+          {
+            foreignKeyName: "fk_puntuaciones_personaje"
+            columns: ["personaje"]
+            isOneToOne: false
+            referencedRelation: "personajes"
+            referencedColumns: ["id"]
           },
         ]
       }

@@ -8,6 +8,7 @@ import {
   type FilaPuntuacion,
   type MuertoAviso,
   type PartidaPayload,
+  type PersonajeSinResolver,
 } from "../supabase/crearTorneo";
 import { etiquetaRonda } from "./formatoRawData";
 
@@ -33,6 +34,14 @@ interface GuardarPartidaProps {
   partidas: PartidaPayload[];
   /** Rondas con filas pero sin nivel o ranked apuntados: impiden guardar. */
   rondasIncompletas: number[];
+  /**
+   * Personajes apuntados que no se pueden traducir a la carta del Excel
+   * (`personajesSinResolver`): impiden guardar, porque se guardarían como
+   * "sin personaje".
+   */
+  personajesSinResolver: PersonajeSinResolver[];
+  /** false mientras characters.xlsx no ha cargado (o si ha fallado). */
+  catalogoCargado: boolean;
   /** Los jugadores de la mesa, para avisar de nombres no registrados. */
   jugadores: string[];
   /** null crea un torneo nuevo; un número continúa uno existente. */
@@ -62,6 +71,8 @@ const GuardarPartida = ({
   muertos,
   partidas,
   rondasIncompletas,
+  personajesSinResolver,
+  catalogoCargado,
   jugadores,
   torneoId,
   descripcion,
@@ -206,6 +217,7 @@ const GuardarPartida = ({
     auth.isOrganiser === true &&
     !sinDatos &&
     rondasIncompletas.length === 0 &&
+    personajesSinResolver.length === 0 &&
     !faltaConfirmarNuevos &&
     estado !== "enviando" &&
     estado !== "ok";
@@ -304,7 +316,14 @@ const GuardarPartida = ({
                     Partida {ronda}:{" "}
                     {filas
                       .filter((f) => f.num_partida === ronda)
-                      .map((f) => `${f.jugador} → ${f.personaje ?? "—"}`)
+                      .map(
+                        (f) =>
+                          `${f.jugador} → ${
+                            f.personaje
+                              ? `${f.personaje.nombre} (${f.personaje.nivel})`
+                              : "—"
+                          }`
+                      )
                       .join(", ")}
                   </li>
                 ))}
@@ -325,6 +344,21 @@ const GuardarPartida = ({
               {rondasIncompletas.length === 1 ? "no tiene" : "no tienen"} nivel
               o ranked apuntados. Ábrela con el botón + de la tabla y dale a
               Submit.
+            </p>
+          )}
+
+          {personajesSinResolver.length > 0 && (
+            <p role="alert" className="mt-2 text-sm text-red-700">
+              {catalogoCargado
+                ? "No se encuentra en el catálogo la carta de: "
+                : "La lista de personajes no ha cargado, así que no se puede guardar la carta de: "}
+              {personajesSinResolver
+                .map((p) => `${p.jugador} (partida ${p.num_partida}, ${p.personaje})`)
+                .join(", ")}
+              .{" "}
+              {catalogoCargado
+                ? "Abre esa partida con el botón + de la tabla, vuelve a elegir el personaje y dale a Submit."
+                : "Recarga la página cuando haya conexión."}
             </p>
           )}
 

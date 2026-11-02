@@ -85,10 +85,14 @@ export type TournamentRounds = Map<number, Map<string, RoundEntry>>;
  * Una entrada del catálogo de personajes.
  *
  * El mismo nombre puede aparecer en varios niveles (Sūn Quán está en cinco), así
- * que el nombre NO identifica una fila. Lo que se guarda en
- * `puntuaciones.personaje` es sólo el nombre.
+ * que el nombre NO identifica una fila. Lo que identifica la carta, también en
+ * la base de datos (`personajes_clave_key`, BD/migration/pg/24), es la
+ * combinación (codigo, servidor, expansion, version, nombre, nivel); al guardar
+ * se manda esa combinación y `puntuaciones.personaje` guarda el id de la fila.
  */
 export interface Personaje {
+  /** Columna `subID` del Excel. No es única por sí sola. */
+  codigo?: string | null;
   nombre: string;
   nombreDorso?: string | null;
   /** Entero de 1 a 15, o 6.5. */

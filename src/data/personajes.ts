@@ -40,6 +40,9 @@ export async function parsearCatalogoPersonajes(
     version: encabezados.indexOf("Version"),
     dinastia: encabezados.indexOf("Dinastia (*)"),
     nombreDorso: encabezados.indexOf("NombreDorso"),
+    // Parte de la clave de la carta en la base de datos: sin ella no se puede
+    // guardar el personaje de una puntuación.
+    codigo: encabezados.indexOf("subID"),
   } as const;
   const faltanColumnasFicha = Object.entries(columnasFicha)
     .filter(([, indice]) => indice < 0)
@@ -135,6 +138,10 @@ export async function parsearCatalogoPersonajes(
     const lore = textoCelda(columnasFicha.lore);
 
     personajes.push({
+      // Mismas reglas que el lector de BD/migration/personajes/generar_24.py
+      // (recorte, '' -> null): si divergen, al guardar se crearía una fila
+      // duplicada en `personajes` por una diferencia de limpieza.
+      codigo: textoCelda(columnasFicha.codigo),
       nombre: nombre.trim(),
       nombreDorso: textoCelda(columnasFicha.nombreDorso),
       nivel,

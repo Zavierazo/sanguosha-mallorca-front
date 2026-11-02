@@ -1,18 +1,37 @@
 import { getSupabase } from "./client";
 import type { PlayerScore } from "../Ranking/Ranking";
+import type { Personaje } from "../data/types";
 
-/** Una fila de puntuaciones, tal cual las espera crear_torneo(). */
-export interface FilaPuntuacion {
+/**
+ * La carta de personaje tal como la identifica la base de datos: la clave
+ * única `personajes_clave_key` (BD/migration/pg/24_personajes_por_id.sql).
+ * crear_torneo() reutiliza la fila si la combinación existe y si no la inserta;
+ * `puntuaciones.personaje` guarda el id. Los campos van tal cual salen del
+ * Excel (recortados, vacío es null): cualquier otra limpieza crearía una fila
+ * duplicada por la diferencia.
+ */
+export interface CartaPersonaje {
+  codigo: string | null;
+  servidor: string | null;
+  expansion: string | null;
+  version: string | null;
+  nombre: string;
+  nivel: number;
+}
+
+/** Lo común a la fila que se envía y a la que se muestra. */
+interface FilaBase {
   num_partida: number;
   jugador: string;
   rol: string;
   puntos: number;
   ganada: boolean;
-  /**
-   * Personaje que llevaba, o null si no se apuntó. crear_torneo() rechaza un
-   * nombre que no esté en `public.personajes` y guarda la grafía del catálogo.
-   */
-  personaje: string | null;
+}
+
+/** Una fila de puntuaciones, tal cual las espera crear_torneo(). */
+export interface FilaPuntuacion extends FilaBase {
+  /** La carta que llevaba, o null si no se apuntó. */
+  personaje: CartaPersonaje | null;
 }
 
 /**
@@ -50,6 +69,8 @@ export interface CrearTorneoResultado {
   /** Lo que quedó guardado de cada una. */
   partidas_detalle: PartidaPayload[];
   puntuaciones_insertadas: number;
+  /** Cartas que no estaban en `personajes` y se han insertado. */
+  personajes_creados: number;
   jugadores_creados: string[];
 }
 
@@ -113,8 +134,12 @@ export function datosDePartidas(
  * los puntos (y ya están calculados) y para pintar el nombre en rojo. Va aparte
  * de `FilaPuntuacion` para que no pueda colarse en el payload de crear_torneo().
  */
-export interface FilaPuntuacionDetalle extends FilaPuntuacion {
+export interface FilaPuntuacionDetalle extends FilaBase {
   vive: boolean;
+  /** Nombre del personaje, para mostrar. */
+  personaje: string | null;
+  /** Fila de characters.xlsx: lo que `buildFilas` traduce a la carta. */
+  filaPersonaje: number | null;
 }
 
 /**
@@ -152,26 +177,91 @@ export function emparejarFilas(
         // `?.trim() || null`: los datos guardados en localStorage antes de que
         // existiera el campo no lo traen, y una cadena vacía es "sin apuntar".
         personaje: score.personaje?.trim() || null,
+        filaPersonaje: score.personaje?.trim() ? score.filaPersonaje ?? null : null,
         vive: score.alive !== false,
       }))
   );
 }
 
-/** Las mismas filas, con sólo las columnas que acepta crear_torneo(). */
+/** La carta de una fila del catálogo, con los seis campos de la clave. */
+function cartaDe(personaje: Personaje): CartaPersonaje {
+  return {
+    codigo: personaje.codigo ?? null,
+    servidor: personaje.servidor ?? null,
+    expansion: personaje.expansion ?? null,
+    version: personaje.version ?? null,
+    nombre: personaje.nombre,
+    nivel: personaje.nivel,
+  };
+}
+
+function porFila(catalogo: readonly Personaje[] | null): Map<number, Personaje> {
+  return new Map(
+    (catalogo ?? [])
+      .filter((p): p is Personaje & { filaExcel: number } => typeof p.filaExcel === "number")
+      .map((p) => [p.filaExcel, p])
+  );
+}
+
+/**
+ * Las mismas filas, con sólo las columnas que acepta crear_torneo().
+ *
+ * El personaje se traduce de `filaPersonaje` a la carta con el catálogo
+ * cargado. Una fila con personaje que no se puede traducir (sin catálogo, o la
+ * fila ya no existe) sale con personaje null: `personajesSinResolver` las
+ * enumera y GuardarPartida no deja guardar mientras haya alguna, para que el
+ * null no llegue a la base de datos como "no se apuntó".
+ */
 export function buildFilas(
   playerScores: PlayerScore[][],
-  players: string[]
+  players: string[],
+  catalogo: readonly Personaje[] | null
 ): FilaPuntuacion[] {
+  const cartas = porFila(catalogo);
   return emparejarFilas(playerScores, players).map(
-    ({ num_partida, jugador, rol, puntos, ganada, personaje }) => ({
+    ({ num_partida, jugador, rol, puntos, ganada, filaPersonaje }) => {
+      const personaje = filaPersonaje === null ? undefined : cartas.get(filaPersonaje);
+      return {
+        num_partida,
+        jugador,
+        rol,
+        puntos,
+        ganada,
+        personaje: personaje ? cartaDe(personaje) : null,
+      };
+    }
+  );
+}
+
+/** Una fila con personaje apuntado que no se puede traducir a una carta. */
+export interface PersonajeSinResolver {
+  num_partida: number;
+  jugador: string;
+  personaje: string;
+}
+
+/**
+ * Las filas con personaje apuntado que `buildFilas` no sabe traducir: el
+ * catálogo no ha cargado, la ronda no guardó la fila del Excel, o esa fila ya
+ * no está. Impiden guardar.
+ */
+export function personajesSinResolver(
+  playerScores: PlayerScore[][],
+  players: string[],
+  catalogo: readonly Personaje[] | null
+): PersonajeSinResolver[] {
+  const cartas = porFila(catalogo);
+  return emparejarFilas(playerScores, players)
+    .filter(
+      (f) =>
+        f.personaje !== null &&
+        (f.filaPersonaje === null || !cartas.has(f.filaPersonaje))
+    )
+    .map(({ num_partida, jugador, personaje }) => ({
       num_partida,
       jugador,
-      rol,
-      puntos,
-      ganada,
-      personaje,
-    })
-  );
+      personaje: personaje as string,
+    }));
 }
 
 /**

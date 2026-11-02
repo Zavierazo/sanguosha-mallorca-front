@@ -4,8 +4,10 @@ import {
   datosDePartidas,
   emparejarFilas,
   muertosDeFilas,
+  personajesSinResolver,
 } from "./crearTorneo";
 import type { PlayerScore } from "../Ranking/Ranking";
+import type { Personaje } from "../data/types";
 
 /**
  * Tests de `emparejarFilas` y `buildFilas`.
@@ -50,6 +52,7 @@ describe("emparejarFilas: el emparejado nombre-puntuación", () => {
         puntos: 5,
         ganada: true,
         personaje: null,
+        filaPersonaje: null,
         vive: true,
       },
       {
@@ -59,6 +62,7 @@ describe("emparejarFilas: el emparejado nombre-puntuación", () => {
         puntos: 3,
         ganada: false,
         personaje: null,
+        filaPersonaje: null,
         vive: true,
       },
       {
@@ -68,6 +72,7 @@ describe("emparejarFilas: el emparejado nombre-puntuación", () => {
         puntos: 1,
         ganada: false,
         personaje: null,
+        filaPersonaje: null,
         vive: true,
       },
     ]);
@@ -183,7 +188,7 @@ describe("buildFilas: el payload que llega a crear_torneo()", () => {
       ],
     ];
 
-    const filas = buildFilas(rondas, jugadores);
+    const filas = buildFilas(rondas, jugadores, null);
 
     expect(filas).toEqual([
       {
@@ -226,17 +231,31 @@ describe("buildFilas: el payload que llega a crear_torneo()", () => {
     ];
 
     const detalle = emparejarFilas(rondas, jugadores);
-    const payload = buildFilas(rondas, jugadores);
+    const payload = buildFilas(rondas, jugadores, null);
 
     expect(payload).toHaveLength(detalle.length);
     expect(payload).toEqual(
-      detalle.map(({ vive, ...resto }) => {
+      detalle.map(({ vive, filaPersonaje, ...resto }) => {
         void vive;
+        void filaPersonaje;
         return resto;
       })
     );
   });
 });
+
+/*
+ * El personaje se elige por fila del Excel (`filaPersonaje`) y se manda como la
+ * carta completa: los seis campos de `personajes_clave_key`
+ * (BD/migration/pg/24_personajes_por_id.sql). Si buildFilas mandara otra cosa
+ * (otro campo, '' en vez de null), crear_torneo() no casaría con la fila
+ * existente y crearía una duplicada sin dar error.
+ */
+const catalogo: Personaje[] = [
+  { filaExcel: 10, codigo: "WEI 001", servidor: "OL", expansion: "界", version: "v. 1", nombre: "Cáo Cāo", nivel: 7 },
+  { filaExcel: 11, codigo: "WU 007", servidor: null, expansion: "标", version: null, nombre: "Sūn Quán", nivel: 1 },
+  { filaExcel: 12, codigo: "WU 007", servidor: "HL", expansion: "标", version: null, nombre: "Sūn Quán", nivel: 12 },
+];
 
 describe("personaje: viaja con su jugador hasta el payload", () => {
   it("se empareja con el jugador correcto en un torneo continuado", () => {
@@ -250,40 +269,67 @@ describe("personaje: viaja con su jugador hasta el payload", () => {
         puntuacion({ role: "V", imported: true }),
       ],
       [
-        puntuacion({ role: "V", personaje: "Cáo Cāo" }),
+        puntuacion({ role: "V", personaje: "Cáo Cāo", filaPersonaje: 10 }),
         puntuacion({ role: "R", personaje: null }),
-        puntuacion({ role: "L", personaje: "Sūn Quán" }),
+        puntuacion({ role: "L", personaje: "Sūn Quán", filaPersonaje: 12 }),
       ],
     ];
 
     expect(
-      buildFilas(rondas, jugadores).map((f) => [f.jugador, f.personaje])
+      buildFilas(rondas, jugadores, catalogo).map((f) => [f.jugador, f.personaje])
     ).toEqual([
-      ["Arcan", "Cáo Cāo"],
+      ["Arcan", { codigo: "WEI 001", servidor: "OL", expansion: "界", version: "v. 1", nombre: "Cáo Cāo", nivel: 7 }],
       ["Miquel", null],
-      ["AliG", "Sūn Quán"],
+      ["AliG", { codigo: "WU 007", servidor: "HL", expansion: "标", version: null, nombre: "Sūn Quán", nivel: 12 }],
     ]);
   });
 
-  it("vacío o sólo espacios es null, y se recorta", () => {
+  it("la fila decide la carta, no el nombre: mismo nombre en otra fila es otra carta", () => {
+    const rondas = [[puntuacion({ personaje: "Sūn Quán", filaPersonaje: 11 })]];
+    expect(buildFilas(rondas, ["A"], catalogo)[0].personaje).toEqual({
+      codigo: "WU 007", servidor: null, expansion: "标", version: null, nombre: "Sūn Quán", nivel: 1,
+    });
+  });
+
+  it("vacío o sólo espacios es sin personaje aunque quede una fila", () => {
     const rondas: PlayerScore[][] = [
       [
-        puntuacion({ personaje: "" }),
-        puntuacion({ personaje: "   " }),
-        puntuacion({ personaje: "  Ma Yunlu " }),
+        puntuacion({ personaje: "", filaPersonaje: 10 }),
+        puntuacion({ personaje: "   ", filaPersonaje: 10 }),
       ],
     ];
 
-    expect(
-      buildFilas(rondas, ["A", "B", "C"]).map((f) => f.personaje)
-    ).toEqual([null, null, "Ma Yunlu"]);
+    expect(buildFilas(rondas, ["A", "B"], catalogo).map((f) => f.personaje)).toEqual([null, null]);
+    expect(personajesSinResolver(rondas, ["A", "B"], catalogo)).toEqual([]);
+  });
+
+  it("sin catálogo, o con una fila que no está, no se puede resolver", () => {
+    const rondas: PlayerScore[][] = [
+      [
+        puntuacion({ personaje: "Cáo Cāo", filaPersonaje: 10 }),
+        puntuacion({ personaje: "Fantasma", filaPersonaje: 999 }),
+        puntuacion({ personaje: "Sin fila" }),
+      ],
+    ];
+
+    expect(personajesSinResolver(rondas, ["A", "B", "C"], catalogo)).toEqual([
+      { num_partida: 1, jugador: "B", personaje: "Fantasma" },
+      { num_partida: 1, jugador: "C", personaje: "Sin fila" },
+    ]);
+    expect(personajesSinResolver(rondas, ["A", "B", "C"], null).map((p) => p.jugador)).toEqual([
+      "A", "B", "C",
+    ]);
+    // Y buildFilas no se inventa nada: null, que GuardarPartida no deja enviar.
+    expect(buildFilas(rondas, ["A", "B", "C"], null).map((f) => f.personaje)).toEqual([
+      null, null, null,
+    ]);
   });
 
   it("los datos viejos de localStorage, sin el campo, dan null", () => {
     // Un PlayerScore guardado antes de que existiera `personaje`.
     const viejo = { role: "R", score: 3, alive: true, winner: true } as PlayerScore;
 
-    expect(buildFilas([[viejo]], ["Arcan"])).toEqual([
+    expect(buildFilas([[viejo]], ["Arcan"], null)).toEqual([
       {
         num_partida: 1,
         jugador: "Arcan",
@@ -318,7 +364,7 @@ describe("datosDePartidas: la lista `partidas` del payload", () => {
     ];
 
     const resultado = datosDePartidas(
-      buildFilas(rondas, jugadores),
+      buildFilas(rondas, jugadores, null),
       (n) => datos[n - 1]
     );
 
@@ -341,7 +387,7 @@ describe("datosDePartidas: la lista `partidas` del payload", () => {
     ];
 
     const resultado = datosDePartidas(
-      buildFilas(rondas, ["Arcan"]),
+      buildFilas(rondas, ["Arcan"], null),
       (n) => datos[n - 1]
     );
 
@@ -353,7 +399,7 @@ describe("datosDePartidas: la lista `partidas` del payload", () => {
 
   it("una ronda sin datos en absoluto también es incompleta", () => {
     const resultado = datosDePartidas(
-      buildFilas([[puntuacion({ role: "R" })]], ["Arcan"]),
+      buildFilas([[puntuacion({ role: "R" })]], ["Arcan"], null),
       () => undefined
     );
 

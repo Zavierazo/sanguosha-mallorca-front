@@ -186,7 +186,11 @@ const RankingModal = ({
       for (let indice = 0; indice < players.length; indice += 1) {
         const player = players[indice];
         const nombre = datosIniciales[`${player}_personaje` as keyof typeof datosIniciales];
-        const filaGuardada = borrador?.filasPersonaje?.[player];
+        // El borrador manda; si no, la fila con la que se envió la ronda.
+        const filaGuardada =
+          borrador?.filasPersonaje?.[player] ??
+          previousPoints?.[indice]?.filaPersonaje ??
+          undefined;
         const filaGuardadaValida =
           typeof nombre === "string" &&
           personajes?.some(
@@ -678,14 +682,15 @@ const RankingModal = ({
         const personaje = (playersData as Record<string, unknown>)[
           `${player}_personaje`
         ];
+        const conPersonaje = typeof personaje === "string" && personaje.trim() !== "";
         return {
           role: roleAbbr,
           score,
           alive,
-          personaje:
-            typeof personaje === "string" && personaje.trim()
-              ? personaje.trim()
-              : null,
+          personaje: conPersonaje ? personaje.trim() : null,
+          // La fila del Excel es lo que identifica la carta al guardar
+          // (buildFilas la traduce a los seis campos de la clave).
+          filaPersonaje: conPersonaje ? filasPersonaje[player] ?? null : null,
           winner:
             playersData.winner === role ||
             (playersData.winner === "King" && role === "Loyalist"),

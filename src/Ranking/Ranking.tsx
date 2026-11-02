@@ -30,6 +30,7 @@ import {
   datosDePartidas,
   emparejarFilas,
   muertosDeFilas,
+  personajesSinResolver,
   type CrearTorneoResultado,
 } from "../supabase/crearTorneo";
 import ErrorConexion from "../ui/ErrorConexion";
@@ -60,8 +61,18 @@ export interface PlayerScore {
    * hubiera guardado antes de existir el campo no lo trae. Las filas importadas
    * de un torneo ya guardado tampoco: su personaje ya está en la base de datos y
    * no se reenvía.
+   *
+   * Sólo para mostrar: lo que se guarda es `filaPersonaje`.
    */
   personaje?: string | null;
+  /**
+   * Fila de characters.xlsx (`Personaje.filaExcel`) del personaje elegido.
+   * Al guardar, `buildFilas` la traduce con el catálogo cargado a los seis
+   * campos de la carta (codigo, servidor, expansion, version, nombre, nivel).
+   * Sin comprobar el nombre, a propósito: el Excel no cambia entre elegir y
+   * guardar. Si cambiara, se guardaría la carta que ahora ocupa esa fila.
+   */
+  filaPersonaje?: number | null;
 }
 export interface GameScore {
   winner: string | null;
@@ -389,13 +400,18 @@ const Ranking = () => {
    * Lo guardado con `-v1` se abandona sin convertir: el cambio se desplegó con
    * la web en mantenimiento y todo el mundo empezó de cero. Por lo mismo ya no
    * se usan `gameLevel-v1`, `gameLevelElegidoAMano-v1` ni `isRanked-v1`.
+   *
+   * `-v3` desde que el personaje se guarda por carta (PlayerScore.filaPersonaje,
+   * BD/migration/pg/24). Una ronda `-v2` con personaje no sabría qué carta
+   * mandar, así que también se abandona; las dos claves cambian juntas para
+   * que playerScores y gameScores no se desalineen.
    */
   const [playerScores, setPlayerScores] = useLocalStorage<PlayerScore[][]>(
-    "playerScore-v2",
+    "playerScore-v3",
     []
   );
   const [gameScores, setGameScores] = useLocalStorage<GameScore[]>(
-    "gameScore-v2",
+    "gameScore-v3",
     []
   );
   const [currentRound, setCurrentRound] = useState<number>(0);
@@ -592,8 +608,14 @@ const Ranking = () => {
    * GuardarPartida pueda detectar por contenido si los datos han cambiado.
    */
   const filasParaBD = useMemo(
-    () => buildFilas(playerScores, playerChoice),
-    [playerScores, playerChoice]
+    () => buildFilas(playerScores, playerChoice, personajes),
+    [playerScores, playerChoice, personajes]
+  );
+
+  /** Personajes apuntados que no se pueden traducir a carta: impiden guardar. */
+  const sinResolver = useMemo(
+    () => personajesSinResolver(playerScores, playerChoice, personajes),
+    [playerScores, playerChoice, personajes]
   );
 
   /**
@@ -1249,6 +1271,8 @@ const Ranking = () => {
               scoringSystem={SCORING_SYSTEM}
               partidas={datosPartidas.partidas}
               rondasIncompletas={datosPartidas.incompletas}
+              personajesSinResolver={sinResolver}
+              catalogoCargado={personajes !== null}
               onGuardado={handleGuardado}
             />
             <RawData texto={rawText} vacio={filasParaBD.length === 0} />
